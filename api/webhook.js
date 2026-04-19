@@ -1,5 +1,7 @@
 // api/webhook.js
 
+const { createClient } = require("@supabase/supabase-js");
+
 const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const FREE_WALLET_LIMIT = 10;
 
@@ -9,7 +11,19 @@ const PLANS = {
   200: { monthly: 0.5 },
 };
 
-const userPlans = new Map();
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+const supabase =
+  supabaseUrl && supabaseServiceRoleKey
+    ? createClient(supabaseUrl, supabaseServiceRoleKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+          detectSessionInUrl: false,
+        },
+      })
+    : null;
 
 function formatDate(date) {
   return new Date(date).toLocaleString();
@@ -42,6 +56,70 @@ async function sendTelegramMessage(chatId, text) {
   }
 }
 
+async function ensureUserAndFreePlan(telegramUser) {
+  if (!supabase) {
+    throw new Error("Supabase client not initialized");
+  }
+
+  const telegramUserId = String(telegramUser.id);
+  const username = telegramUser.username || null;
+
+  const { error: userError } = await supabase.from("users").upsert(
+    {
+      telegramuserid: telegramUserId,
+      username,
+    },
+    {
+      onConflict: "telegramuserid",
+    }
+  );
+
+  if (userError) {
+    throw userError;
+  }
+
+  const { data: existingPlan, error: existingPlanError } = await supabase
+    .from("plans")
+    .select("telegramuserid")
+    .eq("telegramuserid", telegramUserId)
+    .maybeSingle();
+
+  if (existingPlanError) {
+    throw existingPlanError;
+  }
+
+  if (!existingPlan) {
+    const { error: insertPlanError } = await supabase.from("plans").insert({
+      telegramuserid: telegramUserId,
+      planname: "free",
+      walletlimit: FREE_WALLET_LIMIT,
+      status: "active",
+    });
+
+    if (insertPlanError) {
+      throw insertPlanError;
+    }
+  }
+}
+
+async function getUserPlan(telegramUserId) {
+  if (!supabase) {
+    throw new Error("Supabase client not initialized");
+  }
+
+  const { data, error } = await supabase
+    .from("plans")
+    .select("planname, walletlimit, status, updatedat")
+    .eq("telegramuserid", String(telegramUserId))
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
 module.exports = async function handler(req, res) {
   console.log("Webhook hit", {
     method: req.method,
@@ -60,6 +138,7 @@ module.exports = async function handler(req, res) {
 
   const chatId = message.chat?.id;
   const text = (message.text || "").trim();
+  const fromUser = message.from;
 
   console.log("Incoming message", { chatId, text });
 
@@ -69,10 +148,25 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true, message: "Missing chatId" });
     }
 
+    if (!supabase) {
+      console.error("Missing Supabase environment variables");
+      await sendTelegramMessage(
+        chatId,
+        "Database is not configured yet. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel."
+      );
+      return res.status(200).json({ ok: true });
+    }
+
     if (text === "/start") {
+      if (fromUser) {
+        await ensureUserAndFreePlan(fromUser);
+      }
+
       await sendTelegramMessage(
         chatId,
         `Hello! I'm CipherMind.
+
+Your account has been set up.
 
 Use /pricing to see plans.
 Use /payment to see the payment wallet.
@@ -88,9 +182,11 @@ Use /plan to see your current plan.`
 
 First 10 wallets: Free
 
-50 wallets: ${PLANS[50].monthly.toFixed(2)} SOL/month
-100 wallets: ${PLANS[100].monthly.toFixed(2)} SOL/month
-200 wallets: ${PLANS[200].monthly.toFixed(2)} SOL/month
+50 wallets: ${PLANS[50].monthly.toFixed(2)} Solana (SOL)/month
+100 wallets: ${PLANS[100].monthly.toFixed(2)} Solana (SOL)/month
+200 wallets: ${PLANS[200].monthly.toFixed(2)} Solana (SOL)/month
+
+All payments are made in Solana (SOL).
 
 Use /payment to see the payment wallet.`
       );
@@ -104,19 +200,20 @@ Use /payment to see the payment wallet.`
 
 ${PAYMENT_WALLET}
 
-Send SOL to this wallet for monthly access.`
+Send payment in Solana (SOL) only to this wallet for monthly access.`
       );
       return res.status(200).json({ ok: true });
     }
 
     if (text === "/plan") {
-      const userPlan = userPlans.get(chatId);
+      const userPlan = await getUserPlan(chatId);
 
       if (!userPlan) {
         await sendTelegramMessage(
           chatId,
-          `You are currently on the free plan.
-Wallet limit: ${FREE_WALLET_LIMIT}`
+          `No saved plan was found yet.
+
+Send /start first to create your free plan.`
         );
         return res.status(200).json({ ok: true });
       }
@@ -125,10 +222,10 @@ Wallet limit: ${FREE_WALLET_LIMIT}`
         chatId,
         `Your Current Plan:
 
-Plan: ${userPlan.plan} wallets
+Plan: ${userPlan.planname}
+Wallet limit: ${userPlan.walletlimit}
 Status: ${userPlan.status}
-Started: ${formatDate(userPlan.startedAt)}
-Expires: ${formatDate(userPlan.expiresAt)}`
+Updated: ${formatDate(userPlan.updatedat)}`
       );
       return res.status(200).json({ ok: true });
     }
