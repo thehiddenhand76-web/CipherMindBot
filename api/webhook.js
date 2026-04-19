@@ -32,6 +32,8 @@ async function sendTelegramMessage(chatId, text) {
     return;
   }
 
+  console.log("Sending Telegram message", { chatId, text });
+
   const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -41,12 +43,21 @@ async function sendTelegramMessage(chatId, text) {
     }),
   });
 
-  const tgData = await tgRes.json().catch(() => ({}));
+  const rawBody = await tgRes.text();
+  let tgData = null;
+  try {
+    tgData = JSON.parse(rawBody);
+  } catch (e) {
+    // non‑JSON body
+  }
 
-  if (!tgRes.ok || tgData.ok === false) {
+  console.log("Telegram sendMessage status:", tgRes.status);
+  console.log("Telegram sendMessage body:", rawBody);
+
+  if (!tgRes.ok || (tgData && tgData.ok === false)) {
     console.error("Telegram sendMessage failed", {
       status: tgRes.status,
-      data: tgData,
+      data: tgData || rawBody,
     });
   }
 }
@@ -152,6 +163,7 @@ Payment Reference: ${userPlan.reference}`
     }
 
     if (text.startsWith("/pay ")) {
+      // FIX: split on whitespace
       const parts = text.split(/s+/);
       const plan = Number(parts[1]);
       const duration = (parts[2] || "").toLowerCase();
@@ -212,7 +224,10 @@ After manual confirmation, activate with:
       }
 
       if (pending.chatId !== chatId) {
-        await sendTelegramMessage(chatId, "This payment reference belongs to another chat.");
+        await sendTelegramMessage(
+          chatId,
+          "This payment reference belongs to another chat."
+        );
         return res.status(200).json({ ok: true });
       }
 
@@ -260,20 +275,23 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
-    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${groqKey}`,
-      },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
-          { role: "user", content: text },
-        ],
-      }),
-    });
+    const aiRes = await fetch(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${groqKey}`,
+        },
+        body: JSON.stringify({
+          model: "llama-3.1-8b-instant",
+          messages: [
+            { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
+            { role: "user", content: text },
+          ],
+        }),
+      }
+    );
 
     const aiData = await aiRes.json().catch(() => ({}));
 
@@ -290,7 +308,8 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
-    const reply = aiData.choices?.[0]?.message?.content || "No response.";
+    const reply =
+      aiData.choices?.[0]?.message?.content || "No response.";
 
     await sendTelegramMessage(chatId, reply);
     return res.status(200).json({ ok: true });
