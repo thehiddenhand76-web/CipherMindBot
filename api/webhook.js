@@ -1,74 +1,74 @@
-// /pay <plan> monthly
-if (text.startsWith("/pay ")) {
-  // split on whitespace
-  const parts = text.split(/s+/);
-  const plan = Number(parts[1]);
-  const duration = (parts[2] || "").toLowerCase();
+// api/webhook.js
 
-  if (!PLANS[plan] || duration !== "monthly") {
-    await sendTelegramMessage(
-      chatId,
-      `Invalid payment command.
+const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
+const FREE_WALLET_LIMIT = 10;
 
-Use:
-/pay 50 monthly
-/pay 100 monthly
-/pay 200 monthly`
-    );
-    return res.status(200).json({ ok: true });
+const PLANS = {
+  50: { monthly: 0.2 },
+  100: { monthly: 0.3 },
+  200: { monthly: 0.4 },
+};
+
+// In‑memory maps (later you can move these fully to Supabase)
+const pendingPayments = new Map();
+const userPlans = new Map();
+
+// Supabase client
+const { supabase } = require("../lib/supabase");
+
+function addOneMonth(date) {
+  const d = new Date(date);
+  d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+function formatDate(date) {
+  return new Date(date).toLocaleString();
+}
+
+function generatePaymentReference(chatId, plan) {
+  return `SUB-${chatId}-${plan}-${Date.now()}`;
+}
+
+async function sendTelegramMessage(chatId, text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+
+  if (!token) {
+    console.error("Missing TELEGRAM_BOT_TOKEN");
+    return;
   }
 
-  const amount = PLANS[plan].monthly;
-  const reference = generatePaymentReference(chatId, plan);
+  console.log("Sending Telegram message", { chatId, text });
 
-  // Keep in‑memory tracking for now
-  pendingPayments.set(reference, {
-    chatId,
-    plan,
-    duration,
-    amount,
-    wallet: PAYMENT_WALLET,
-    createdAt: new Date().toISOString(),
-    status: "pending",
+  const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+    }),
   });
 
-  // Supabase pending_payments insert
+  const rawBody = await tgRes.text();
+  let tgData = null;
   try {
-    const telegramUserId = String(chatId);
-
-    const { error: payError } = await supabase
-      .from("pending_payments")
-      .insert({
-        telegram_user_id: telegramUserId,
-        plan_requested: String(plan),
-        amount,
-        billing_cycle: duration,
-        status: "pending",
-      });
-
-    if (payError) {
-      console.error("Supabase insert pending_payments failed", payError);
-    }
+    tgData = JSON.parse(rawBody);
   } catch (e) {
-    console.error("Supabase pending_payments insert error", e);
+    // non‑JSON body is fine; we logged rawBody
   }
 
-  await sendTelegramMessage(
-    chatId,
-    `Subscription Payment
+  console.log("Telegram sendMessage status:", tgRes.status);
+  console.log("Telegram sendMessage body:", rawBody);
 
-Plan: ${plan} wallets
-Price: ${amount.toFixed(2)} SOL
-Duration: monthly
-
-Send payment to:
-${PAYMENT_WALLET}
-
-Reference:
-${reference}
-
-After manual confirmation, activate with:
-/activate ${reference}`
-  );
-  return res.status(200).json({ ok: true });
+  if (!tgRes.ok || (tgData && tgData.ok === false)) {
+    console.error("Telegram sendMessage failed", {
+      status: tgRes.status,
+      data: tgData || rawBody,
+    });
+  }
 }
+
+// *** handler starts here, no await above this line ***
+module.exports = async function handler(req, res) {
+  // ... rest of the file stays as we already set it up ...
+};
