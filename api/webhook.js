@@ -4,30 +4,15 @@ const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const FREE_WALLET_LIMIT = 10;
 
 const PLANS = {
-  50: { monthly: 0.2 },
-  100: { monthly: 0.3 },
-  200: { monthly: 0.4 },
+  50: { monthly: 0.3 },
+  100: { monthly: 0.4 },
+  200: { monthly: 0.5 },
 };
 
-// In‑memory maps (later you can move these fully to Supabase)
-const pendingPayments = new Map();
 const userPlans = new Map();
-
-// Supabase client
-const { supabase } = require("../lib/supabase");
-
-function addOneMonth(date) {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + 1);
-  return d;
-}
 
 function formatDate(date) {
   return new Date(date).toLocaleString();
-}
-
-function generatePaymentReference(chatId, plan) {
-  return `SUB-${chatId}-${plan}-${Date.now()}`;
 }
 
 async function sendTelegramMessage(chatId, text) {
@@ -38,8 +23,6 @@ async function sendTelegramMessage(chatId, text) {
     return;
   }
 
-  console.log("Sending Telegram message", { chatId, text });
-
   const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,21 +32,12 @@ async function sendTelegramMessage(chatId, text) {
     }),
   });
 
-  const rawBody = await tgRes.text();
-  let tgData = null;
-  try {
-    tgData = JSON.parse(rawBody);
-  } catch (e) {
-    // non‑JSON body is fine; we logged rawBody
-  }
+  const tgData = await tgRes.json().catch(() => ({}));
 
-  console.log("Telegram sendMessage status:", tgRes.status);
-  console.log("Telegram sendMessage body:", rawBody);
-
-  if (!tgRes.ok || (tgData && tgData.ok === false)) {
+  if (!tgRes.ok || tgData.ok === false) {
     console.error("Telegram sendMessage failed", {
       status: tgRes.status,
-      data: tgData || rawBody,
+      data: tgData,
     });
   }
 }
@@ -89,52 +63,24 @@ module.exports = async function handler(req, res) {
 
   console.log("Incoming message", { chatId, text });
 
-  // --- Supabase: upsert user into "users" table ---
-  try {
-    if (chatId && message.from) {
-      const telegramUserId = String(chatId);
-      const username = message.from.username || null;
-
-      const { error: userError } = await supabase
-        .from("users")
-        .upsert(
-          {
-            telegram_user_id: telegramUserId,
-            username,
-          },
-          { onConflict: "telegram_user_id" }
-        );
-
-      if (userError) {
-        console.error("Supabase upsert users failed", userError);
-      }
-    }
-  } catch (e) {
-    console.error("Supabase users write error", e);
-  }
-  // ------------------------------------------------
-
   try {
     if (!chatId) {
       console.error("Missing chatId");
       return res.status(200).json({ ok: true, message: "Missing chatId" });
     }
 
-    // /start
     if (text === "/start") {
       await sendTelegramMessage(
         chatId,
         `Hello! I'm CipherMind.
 
 Use /pricing to see plans.
-Use /payment for payment info.
-Use /pay <plan> monthly to subscribe.
+Use /payment to see the payment wallet.
 Use /plan to see your current plan.`
       );
       return res.status(200).json({ ok: true });
     }
 
-    // /pricing
     if (text === "/pricing") {
       await sendTelegramMessage(
         chatId,
@@ -142,19 +88,15 @@ Use /plan to see your current plan.`
 
 First 10 wallets: Free
 
-50 wallets: 0.20 SOL/month
-100 wallets: 0.30 SOL/month
-200 wallets: 0.40 SOL/month
+50 wallets: ${PLANS[50].monthly.toFixed(2)} SOL/month
+100 wallets: ${PLANS[100].monthly.toFixed(2)} SOL/month
+200 wallets: ${PLANS[200].monthly.toFixed(2)} SOL/month
 
-To subscribe, use:
-/pay 50 monthly
-/pay 100 monthly
-/pay 200 monthly`
+Use /payment to see the payment wallet.`
       );
       return res.status(200).json({ ok: true });
     }
 
-    // /payment
     if (text === "/payment") {
       await sendTelegramMessage(
         chatId,
@@ -162,16 +104,11 @@ To subscribe, use:
 
 ${PAYMENT_WALLET}
 
-Send SOL to this wallet for monthly access.
-
-Then use:
-/pay 50 monthly
-or another listed plan.`
+Send SOL to this wallet for monthly access.`
       );
       return res.status(200).json({ ok: true });
     }
 
-    // /plan (still in-memory for now)
     if (text === "/plan") {
       const userPlan = userPlans.get(chatId);
 
@@ -191,139 +128,11 @@ Wallet limit: ${FREE_WALLET_LIMIT}`
 Plan: ${userPlan.plan} wallets
 Status: ${userPlan.status}
 Started: ${formatDate(userPlan.startedAt)}
-Expires: ${formatDate(userPlan.expiresAt)}
-Payment Reference: ${userPlan.reference}`
+Expires: ${formatDate(userPlan.expiresAt)}`
       );
       return res.status(200).json({ ok: true });
     }
 
-    // /pay <plan> monthly
-    if (text.startsWith("/pay ")) {
-      // split on whitespace
-      const parts = text.split(/s+/);
-      const plan = Number(parts[1]);
-      const duration = (parts[2] || "").toLowerCase();
-
-      if (!PLANS[plan] || duration !== "monthly") {
-        await sendTelegramMessage(
-          chatId,
-          `Invalid payment command.
-
-Use:
-/pay 50 monthly
-/pay 100 monthly
-/pay 200 monthly`
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const amount = PLANS[plan].monthly;
-      const reference = generatePaymentReference(chatId, plan);
-
-      // In-memory tracking
-      pendingPayments.set(reference, {
-        chatId,
-        plan,
-        duration,
-        amount,
-        wallet: PAYMENT_WALLET,
-        createdAt: new Date().toISOString(),
-        status: "pending",
-      });
-
-      // Supabase pending_payments insert
-      try {
-        const telegramUserId = String(chatId);
-
-        const { error: payError } = await supabase
-          .from("pending_payments")
-          .insert({
-            telegram_user_id: telegramUserId,
-            plan_requested: String(plan),
-            amount,
-            billing_cycle: duration,
-            status: "pending",
-          });
-
-        if (payError) {
-          console.error("Supabase insert pending_payments failed", payError);
-        }
-      } catch (e) {
-        console.error("Supabase pending_payments insert error", e);
-      }
-
-      await sendTelegramMessage(
-        chatId,
-        `Subscription Payment
-
-Plan: ${plan} wallets
-Price: ${amount.toFixed(2)} SOL
-Duration: monthly
-
-Send payment to:
-${PAYMENT_WALLET}
-
-Reference:
-${reference}
-
-After manual confirmation, activate with:
-/activate ${reference}`
-      );
-      return res.status(200).json({ ok: true });
-    }
-
-    // /activate <reference> (still in-memory for now)
-    if (text.startsWith("/activate ")) {
-      const reference = text.replace("/activate", "").trim();
-      const pending = pendingPayments.get(reference);
-
-      if (!pending) {
-        await sendTelegramMessage(chatId, "Payment reference not found.");
-        return res.status(200).json({ ok: true });
-      }
-
-      if (pending.chatId !== chatId) {
-        await sendTelegramMessage(
-          chatId,
-          "This payment reference belongs to another chat."
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const startedAt = new Date();
-      const expiresAt = addOneMonth(startedAt);
-
-      userPlans.set(chatId, {
-        plan: pending.plan,
-        duration: pending.duration,
-        amount: pending.amount,
-        wallet: pending.wallet,
-        reference,
-        status: "active",
-        startedAt: startedAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-      });
-
-      pendingPayments.set(reference, {
-        ...pending,
-        status: "paid",
-        startedAt: startedAt.toISOString(),
-        expiresAt: expiresAt.toISOString(),
-      });
-
-      await sendTelegramMessage(
-        chatId,
-        `Plan activated successfully.
-
-Plan: ${pending.plan} wallets
-Status: active
-Started: ${formatDate(startedAt)}
-Expires: ${formatDate(expiresAt)}`
-      );
-      return res.status(200).json({ ok: true });
-    }
-
-    // AI chat via Groq
     const groqKey = process.env.GROQ_API_KEY;
 
     if (!groqKey) {
@@ -335,26 +144,20 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
-    const aiRes = await fetch(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${groqKey}`,
-        },
-        body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
-          messages: [
-            {
-              role: "system",
-              content: "You are CipherMind, a helpful Telegram assistant.",
-            },
-            { role: "user", content: text },
-          ],
-        }),
-      }
-    );
+    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${groqKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [
+          { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
+          { role: "user", content: text },
+        ],
+      }),
+    });
 
     const aiData = await aiRes.json().catch(() => ({}));
 
@@ -371,8 +174,7 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
-    const reply =
-      aiData.choices?.[0]?.message?.content || "No response.";
+    const reply = aiData.choices?.[0]?.message?.content || "No response.";
 
     await sendTelegramMessage(chatId, reply);
     return res.status(200).json({ ok: true });
