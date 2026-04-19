@@ -7,9 +7,6 @@ const PLANS = {
   200: { monthly: 0.40 },
 };
 
-const VALID_PLANS = new Set([50, 100, 200]);
-const VALID_DURATIONS = new Set(["monthly"]);
-
 const pendingPayments = new Map();
 const userPlans = new Map();
 
@@ -28,7 +25,14 @@ function generatePaymentReference(chatId, plan) {
 }
 
 async function sendTelegramMessage(chatId, text) {
-  await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+
+  if (!token) {
+    console.error("Missing TELEGRAM_BOT_TOKEN");
+    return;
+  }
+
+  const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -36,18 +40,44 @@ async function sendTelegramMessage(chatId, text) {
       text,
     }),
   });
+
+  const tgData = await tgRes.json().catch(() => ({}));
+
+  if (!tgRes.ok || tgData.ok === false) {
+    console.error("Telegram sendMessage failed", {
+      status: tgRes.status,
+      data: tgData,
+    });
+  }
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== "POST") return res.status(200).json({ ok: true });
+  console.log("Webhook hit", {
+    method: req.method,
+    hasBody: !!req.body,
+  });
+
+  if (req.method !== "POST") {
+    return res.status(200).json({ ok: true, message: "Webhook alive" });
+  }
 
   const { message } = req.body || {};
-  if (!message || !message.text) return res.status(200).json({ ok: true });
+  if (!message || !message.text) {
+    console.log("No message text in update");
+    return res.status(200).json({ ok: true, message: "No message text" });
+  }
 
-  const chatId = message.chat.id;
-  const text = message.text.trim();
+  const chatId = message.chat?.id;
+  const text = (message.text || "").trim();
+
+  console.log("Incoming message", { chatId, text });
 
   try {
+    if (!chatId) {
+      console.error("Missing chatId");
+      return res.status(200).json({ ok: true, message: "Missing chatId" });
+    }
+
     if (text === "/start") {
       await sendTelegramMessage(
         chatId,
@@ -55,7 +85,8 @@ module.exports = async function handler(req, res) {
 
 Use /pricing to see plans.
 Use /payment for payment info.
-Use /pay <plan> monthly to subscribe."
+Use /pay <plan> monthly to subscribe.
+Use /plan to see your current plan."
       );
       return res.status(200).json({ ok: true });
     }
@@ -71,9 +102,10 @@ First 10 wallets: Free
 100 wallets: 0.30 SOL/month
 200 wallets: 0.40 SOL/month
 
-To subscribe, use /pay <plan> <duration>.
-For example:
-/pay 100 monthly`
+To subscribe, use:
+/pay 50 monthly
+/pay 100 monthly
+/pay 200 monthly`
       );
       return res.status(200).json({ ok: true });
     }
@@ -85,12 +117,11 @@ For example:
 
 ${PAYMENT_WALLET}
 
-Send payment to this wallet for monthly bot access.
+Send SOL to this wallet for monthly access.
 
-Use /pay <plan> monthly to get your payment amount and reference.
-
-Example:
-/pay 50 monthly`
+Then use:
+/pay 50 monthly
+or another listed plan.`
       );
       return res.status(200).json({ ok: true });
     }
@@ -125,12 +156,12 @@ Payment Reference: ${userPlan.reference}`
       const plan = Number(parts[1]);
       const duration = (parts[2] || "").toLowerCase();
 
-      if (!VALID_PLANS.has(plan) || !VALID_DURATIONS.has(duration)) {
+      if (!PLANS[plan] || duration !== "monthly") {
         await sendTelegramMessage(
           chatId,
           `Invalid payment command.
 
-Use one of these:
+Use:
 /pay 50 monthly
 /pay 100 monthly
 /pay 200 monthly`
@@ -138,7 +169,7 @@ Use one of these:
         return res.status(200).json({ ok: true });
       }
 
-      const amount = PLANS[plan][duration];
+      const amount = PLANS[plan].monthly;
       const reference = generatePaymentReference(chatId, plan);
 
       pendingPayments.set(reference, {
@@ -162,15 +193,11 @@ Duration: monthly
 Send payment to:
 ${PAYMENT_WALLET}
 
-Payment Reference:
+Reference:
 ${reference}
 
-Important:
-Include this reference in your payment memo if possible.
-
-After payment is confirmed, your monthly plan should start and expire one month later.
-
-For now, payment confirmation still needs to be wired into live on-chain verification.`
+After manual confirmation, activate with:
+/activate ${reference}`
       );
       return res.status(200).json({ ok: true });
     }
@@ -185,7 +212,7 @@ For now, payment confirmation still needs to be wired into live on-chain verific
       }
 
       if (pending.chatId !== chatId) {
-        await sendTelegramMessage(chatId, "That payment reference does not belong to this chat.");
+        await sendTelegramMessage(chatId, "This payment reference belongs to another chat.");
         return res.status(200).json({ ok: true });
       }
 
@@ -222,11 +249,22 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
+    const groqKey = process.env.GROQ_API_KEY;
+
+    if (!groqKey) {
+      console.error("Missing GROQ_API_KEY");
+      await sendTelegramMessage(
+        chatId,
+        "AI replies are temporarily unavailable, but command features still work."
+      );
+      return res.status(200).json({ ok: true });
+    }
+
     const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+        "Authorization": `Bearer ${groqKey}`,
       },
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
@@ -237,18 +275,41 @@ Expires: ${formatDate(expiresAt)}`
       }),
     });
 
-    const aiData = await aiRes.json();
-    const reply = aiData.choices?.[0]?.message?.content || "No response.";
+    const aiData = await aiRes.json().catch(() => ({}));
+
+    if (!aiRes.ok) {
+      console.error("Groq request failed", {
+        status: aiRes.status,
+        data: aiData,
+      });
+
+      await sendTelegramMessage(
+        chatId,
+        "CipherMind AI is temporarily unavailable. Try again in a minute."
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    const reply =
+      aiData.choices?.[0]?.message?.content ||
+      "No response.";
 
     await sendTelegramMessage(chatId, reply);
-  } catch (e) {
-    console.error(e);
+    return res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("Webhook handler error", error);
 
-    await sendTelegramMessage(
-      chatId,
-      "CipherMind is temporarily unavailable. Try again in a minute."
-    );
+    try {
+      if (chatId) {
+        await sendTelegramMessage(
+          chatId,
+          "CipherMind is temporarily unavailable. Try again in a minute."
+        );
+      }
+    } catch (sendError) {
+      console.error("Failed sending fallback Telegram message", sendError);
+    }
+
+    return res.status(200).json({ ok: true, errorHandled: true });
   }
-
-  res.status(200).json({ ok: true });
 };
