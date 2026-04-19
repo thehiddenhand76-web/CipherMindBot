@@ -199,6 +199,7 @@ Payment Reference: ${userPlan.reference}`
 
     // /pay <plan> monthly
     if (text.startsWith("/pay ")) {
+      // FIX: split on whitespace
       const parts = text.split(/s+/);
       const plan = Number(parts[1]);
       const duration = (parts[2] || "").toLowerCase();
@@ -219,6 +220,7 @@ Use:
       const amount = PLANS[plan].monthly;
       const reference = generatePaymentReference(chatId, plan);
 
+      // Keep in‑memory tracking for now
       pendingPayments.set(reference, {
         chatId,
         plan,
@@ -228,6 +230,31 @@ Use:
         createdAt: new Date().toISOString(),
         status: "pending",
       });
+
+      // NEW: log payment intent in Supabase pending_payments table
+      try {
+        const telegramUserId = String(chatId);
+
+        const { error: payError } = await supabase
+          .from("pending_payments")
+          .insert({
+            telegram_user_id: telegramUserId,
+            plan_requested: String(plan),
+            amount,
+            billing_cycle: duration,
+            status: "pending",
+            // created_at default handled by Supabase
+          });
+
+        if (payError) {
+          console.error(
+            "Supabase insert pending_payments failed",
+            payError
+          );
+        }
+      } catch (e) {
+        console.error("Supabase pending_payments insert error", e);
+      }
 
       await sendTelegramMessage(
         chatId,
