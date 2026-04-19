@@ -1,3 +1,5 @@
+// api/webhook.js
+
 const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const FREE_WALLET_LIMIT = 10;
 
@@ -7,8 +9,12 @@ const PLANS = {
   200: { monthly: 0.4 },
 };
 
+// In‑memory maps (later you can move these fully to Supabase)
 const pendingPayments = new Map();
 const userPlans = new Map();
+
+// Supabase client
+const { supabase } = require("../lib/supabase");
 
 function addOneMonth(date) {
   const d = new Date(date);
@@ -48,7 +54,7 @@ async function sendTelegramMessage(chatId, text) {
   try {
     tgData = JSON.parse(rawBody);
   } catch (e) {
-    // non‑JSON body
+    // non‑JSON body is fine; we logged rawBody
   }
 
   console.log("Telegram sendMessage status:", tgRes.status);
@@ -83,12 +89,38 @@ module.exports = async function handler(req, res) {
 
   console.log("Incoming message", { chatId, text });
 
+  // --- Supabase: upsert user into "users" table ---
+  try {
+    if (chatId && message.from) {
+      const telegramUserId = String(chatId);
+      const username = message.from.username || null;
+
+      const { error: userError } = await supabase
+        .from("users")
+        .upsert(
+          {
+            telegram_user_id: telegramUserId,
+            username,
+          },
+          { onConflict: "telegram_user_id" }
+        );
+
+      if (userError) {
+        console.error("Supabase upsert users failed", userError);
+      }
+    }
+  } catch (e) {
+    console.error("Supabase users write error", e);
+  }
+  // ------------------------------------------------
+
   try {
     if (!chatId) {
       console.error("Missing chatId");
       return res.status(200).json({ ok: true, message: "Missing chatId" });
     }
 
+    // /start
     if (text === "/start") {
       await sendTelegramMessage(
         chatId,
@@ -102,6 +134,7 @@ Use /plan to see your current plan.`
       return res.status(200).json({ ok: true });
     }
 
+    // /pricing
     if (text === "/pricing") {
       await sendTelegramMessage(
         chatId,
@@ -121,6 +154,7 @@ To subscribe, use:
       return res.status(200).json({ ok: true });
     }
 
+    // /payment
     if (text === "/payment") {
       await sendTelegramMessage(
         chatId,
@@ -137,6 +171,7 @@ or another listed plan.`
       return res.status(200).json({ ok: true });
     }
 
+    // /plan
     if (text === "/plan") {
       const userPlan = userPlans.get(chatId);
 
@@ -162,8 +197,8 @@ Payment Reference: ${userPlan.reference}`
       return res.status(200).json({ ok: true });
     }
 
+    // /pay <plan> monthly
     if (text.startsWith("/pay ")) {
-      // FIX: split on whitespace
       const parts = text.split(/s+/);
       const plan = Number(parts[1]);
       const duration = (parts[2] || "").toLowerCase();
@@ -214,6 +249,7 @@ After manual confirmation, activate with:
       return res.status(200).json({ ok: true });
     }
 
+    // /activate <reference>
     if (text.startsWith("/activate ")) {
       const reference = text.replace("/activate", "").trim();
       const pending = pendingPayments.get(reference);
@@ -264,6 +300,7 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
+    // AI chat via Groq
     const groqKey = process.env.GROQ_API_KEY;
 
     if (!groqKey) {
@@ -286,7 +323,10 @@ Expires: ${formatDate(expiresAt)}`
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
           messages: [
-            { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
+            {
+              role: "system",
+              content: "You are CipherMind, a helpful Telegram assistant.",
+            },
             { role: "user", content: text },
           ],
         }),
