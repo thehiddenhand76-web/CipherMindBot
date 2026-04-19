@@ -2,9 +2,9 @@ const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const FREE_WALLET_LIMIT = 10;
 
 const PLANS = {
-  50: { monthly: 0.20 },
-  100: { monthly: 0.30 },
-  200: { monthly: 0.40 },
+  50: { monthly: 0.2 },
+  100: { monthly: 0.3 },
+  200: { monthly: 0.4 },
 };
 
 const pendingPayments = new Map();
@@ -81,12 +81,12 @@ module.exports = async function handler(req, res) {
     if (text === "/start") {
       await sendTelegramMessage(
         chatId,
-        "Hello! I'm CipherMind.
+        `Hello! I'm CipherMind.
 
 Use /pricing to see plans.
 Use /payment for payment info.
 Use /pay <plan> monthly to subscribe.
-Use /plan to see your current plan."
+Use /plan to see your current plan.`
       );
       return res.status(200).json({ ok: true });
     }
@@ -264,13 +264,13 @@ Expires: ${formatDate(expiresAt)}`
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${groqKey}`,
+        Authorization: `Bearer ${groqKey}`,
       },
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [
           { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
-          { role: "user", content: text }
+          { role: "user", content: text },
         ],
       }),
     });
@@ -290,9 +290,7 @@ Expires: ${formatDate(expiresAt)}`
       return res.status(200).json({ ok: true });
     }
 
-    const reply =
-      aiData.choices?.[0]?.message?.content ||
-      "No response.";
+    const reply = aiData.choices?.[0]?.message?.content || "No response.";
 
     await sendTelegramMessage(chatId, reply);
     return res.status(200).json({ ok: true });
