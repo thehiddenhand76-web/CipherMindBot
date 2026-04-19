@@ -67,8 +67,3 @@ async function sendTelegramMessage(chatId, text) {
     });
   }
 }
-
-// *** handler starts here, no await above this line ***
-module.exports = async function handler(req, res) {
-  // ... rest of the file stays as we already set it up ...
-};
