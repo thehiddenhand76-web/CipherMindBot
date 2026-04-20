@@ -153,21 +153,15 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/start") {
-      if (fromUser) {
-        await ensureUserAndFreePlan(fromUser);
-      }
+  if (fromUser) {
+    await ensureUserAndFreePlan(fromUser);
+  }
 
-      await sendTelegramMessage(
-        chatId,
-        "Hello! I'm CipherMind.
-
-Your account has been set up.
-
-Use /pricing to see plans.
-Use /payment to see the payment wallet.
-Use /plan to see your current plan."
-      );
-      return res.status(200).json({ ok: true });
+  await sendTelegramMessage(
+    chatId,
+    "Hello! I'm CipherMind. Your account has been set up. Use /pricing to see plans. Use /payment to see the payment wallet. Use /plan to see your current plan."
+  );
+  return res.status(200).json({ ok: true });
     }
 
     if (command === "/pricing") {
