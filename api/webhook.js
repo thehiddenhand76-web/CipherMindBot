@@ -28,7 +28,7 @@ function formatDate(date) {
 }
 
 function getCommand(text) {
-  return (text || "").trim().split(/s+/)[0].split("@")[0].toLowerCase();
+  return (text || "").trim().split(/\s+/)[0].split("@")[0].toLowerCase();
 }
 
 async function sendTelegramMessage(chatId, text) {
@@ -68,11 +68,11 @@ async function ensureUserAndFreePlan(telegramUser) {
 
   const { error: userError } = await supabase.from("users").upsert(
     {
-      telegramuserid: telegramUserId,
+      telegram_user_id: telegramUserId,
       username: username,
     },
     {
-      onConflict: "telegramuserid",
+      onConflict: "telegram_user_id",
     }
   );
 
@@ -189,6 +189,11 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/plan") {
+      if (!fromUser) {
+        await sendTelegramMessage(chatId, "Could not identify user. Please try again.");
+        return res.status(200).json({ ok: true });
+      }
+
       const userPlan = await getUserPlan(fromUser.id);
 
       if (!userPlan) {
@@ -244,9 +249,9 @@ module.exports = async function handler(req, res) {
         model: "llama-3.1-8b-instant",
         messages: [
           { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
-          { role: "user", content: text }
-        ]
-      })
+          { role: "user", content: text },
+        ],
+      }),
     });
 
     const aiData = await aiRes.json().catch(() => ({}));
