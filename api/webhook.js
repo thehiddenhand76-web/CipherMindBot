@@ -80,17 +80,17 @@ async function ensureUserAndFreePlan(telegramUser) {
 
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("plans")
-    .select("telegramuserid")
-    .eq("telegramuserid", telegramUserId)
+    .select("telegram_user_id")
+    .eq("telegram_user_id", telegramUserId)
     .maybeSingle();
 
   if (existingPlanError) throw existingPlanError;
 
   if (!existingPlan) {
     const { error: insertPlanError } = await supabase.from("plans").insert({
-      telegramuserid: telegramUserId,
-      planname: "free",
-      walletlimit: FREE_WALLET_LIMIT,
+      telegram_user_id: telegramUserId,
+      plan_name: "free",
+      wallet_limit: FREE_WALLET_LIMIT,
       status: "active",
     });
 
@@ -106,7 +106,7 @@ async function getUserPlan(telegramUserId) {
   const { data, error } = await supabase
     .from("plans")
     .select("plan_name, wallet_limit, status, updated_at")
-    .eq("telegramuserid", String(telegramUserId))
+    .eq("telegram_user_id", String(telegramUserId))
     .maybeSingle();
 
   if (error) throw error;
