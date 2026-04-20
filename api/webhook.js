@@ -122,7 +122,7 @@ async function getUserPlan(telegramUserId) {
 
 async function getTrackedWallets(telegramUserId) {
   const { data, error } = await supabase
-    .from("trackedwallets")
+    .from("tracked_wallets")
     .select("id, wallet_address, label, created_at")
     .eq("telegram_user_id", String(telegramUserId))
     .order("created_at", { ascending: true });
@@ -151,7 +151,7 @@ async function addTrackedWallet(telegramUserId, walletAddress, label) {
     };
   }
 
-  const { error } = await supabase.from("trackedwallets").insert({
+  const { error } = await supabase.from("tracked_wallets").insert({
     telegram_user_id: String(telegramUserId),
     wallet_address: walletAddress,
     label: label || null,
@@ -164,7 +164,7 @@ async function addTrackedWallet(telegramUserId, walletAddress, label) {
 
 async function removeTrackedWallet(telegramUserId, walletAddress) {
   const { data, error } = await supabase
-    .from("trackedwallets")
+    .from("tracked_wallets")
     .delete()
     .eq("telegram_user_id", String(telegramUserId))
     .eq("wallet_address", walletAddress)
