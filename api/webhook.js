@@ -105,7 +105,7 @@ async function getUserPlan(telegramUserId) {
 
   const { data, error } = await supabase
     .from("plans")
-    .select("planname, walletlimit, status, updatedat")
+    .select("plan_name, wallet_limit, status, updated_at")
     .eq("telegramuserid", String(telegramUserId))
     .maybeSingle();
 
@@ -202,13 +202,13 @@ module.exports = async function handler(req, res) {
       await sendTelegramMessage(
         chatId,
         "Your Current Plan: Plan " +
-          userPlan.planname +
+          userPlan.plan_name +
           ", wallet limit " +
-          userPlan.walletlimit +
+          userPlan.wallet_limit +
           ", status " +
           userPlan.status +
           ", updated " +
-          formatDate(userPlan.updatedat)
+          formatDate(userPlan.updated_at)
       );
       return res.status(200).json({ ok: true });
     }
