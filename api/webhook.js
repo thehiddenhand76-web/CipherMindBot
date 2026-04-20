@@ -158,15 +158,15 @@ module.exports = async function handler(req, res) {
       }
 
       await sendTelegramMessage(
-  chatId,
-  `Hello! I'm CipherMind.
+        chatId,
+        `Hello! I'm CipherMind.
 
 Your account has been set up.
 
 Use /pricing to see plans.
 Use /payment to see the payment wallet.
 Use /plan to see your current plan.`
-);
+      );
       return res.status(200).json({ ok: true });
     }
 
