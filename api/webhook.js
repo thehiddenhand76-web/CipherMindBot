@@ -11,8 +11,11 @@ const PLANS = {
   200: { monthly: 0.5 },
 };
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl =
+  process.env.SUPABASE_URL || process.env.SUPABASEURL;
+
+const supabaseServiceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASESERVICEROLEKEY;
 
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
@@ -146,7 +149,7 @@ async function addTrackedWallet(telegramUserId, walletAddress, label) {
   if (existingWallets.length >= currentPlan.walletlimit) {
     return {
       ok: false,
-      message: `You reached your wallet limit (${currentPlan.walletlimit}) for your current plan. Use /pricing or /pay to upgrade.`,
+      message: "You reached your wallet limit for your current plan. Use /pricing or /pay to upgrade.",
     };
   }
 
@@ -211,10 +214,16 @@ module.exports = async function handler(req, res) {
     }
 
     if (!supabase) {
-      console.error("Missing Supabase environment variables");
+      console.error("Missing Supabase environment variables", {
+        has_SUPABASE_URL: !!process.env.SUPABASE_URL,
+        has_SUPABASEURL: !!process.env.SUPABASEURL,
+        has_SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        has_SUPABASESERVICEROLEKEY: !!process.env.SUPABASESERVICEROLEKEY,
+      });
+
       await sendTelegramMessage(
         chatId,
-        "Database is not configured yet. Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel."
+        "Database is not configured yet. Add SUPABASE_URL or SUPABASEURL, and SUPABASE_SERVICE_ROLE_KEY or SUPABASESERVICEROLEKEY in Vercel."
       );
       return res.status(200).json({ ok: true });
     }
@@ -226,13 +235,13 @@ module.exports = async function handler(req, res) {
 
       await sendTelegramMessage(
         chatId,
-        `Hello! I'm CipherMind.
+        "Hello! I'm CipherMind.
 
 Your account has been set up.
 
 Use /pricing to see plans.
 Use /payment to see the payment wallet.
-Use /plan to see your current plan.`
+Use /plan to see your current plan."
       );
       return res.status(200).json({ ok: true });
     }
@@ -273,9 +282,9 @@ Send payment in Solana (SOL) only to this wallet for monthly access.`
       if (!userPlan) {
         await sendTelegramMessage(
           chatId,
-          `No saved plan was found yet.
+          "No saved plan was found yet.
 
-Send /start first to create your free plan.`
+Send /start first to create your free plan."
         );
         return res.status(200).json({ ok: true });
       }
@@ -308,11 +317,11 @@ Then message support with your requested plan: 50, 100, or 200 wallets.`
       if (parts.length < 2) {
         await sendTelegramMessage(
           chatId,
-          `Usage:
+          "Usage:
 /addwallet WALLET_ADDRESS LABEL
 
 Example:
-/addwallet 8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j Main`
+/addwallet 8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j Main"
         );
         return res.status(200).json({ ok: true });
       }
@@ -348,9 +357,9 @@ Label: ${label}` : ""}`
       if (!wallets.length) {
         await sendTelegramMessage(
           chatId,
-          `You are not tracking any wallets yet.
+          "You are not tracking any wallets yet.
 
-Use /addwallet WALLET_ADDRESS LABEL to add one.`
+Use /addwallet WALLET_ADDRESS LABEL to add one."
         );
         return res.status(200).json({ ok: true });
       }
@@ -375,8 +384,8 @@ ${formatted}`
       if (parts.length < 2) {
         await sendTelegramMessage(
           chatId,
-          `Usage:
-/removewallet WALLET_ADDRESS`
+          "Usage:
+/removewallet WALLET_ADDRESS"
         );
         return res.status(200).json({ ok: true });
       }
