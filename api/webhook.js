@@ -39,12 +39,12 @@ async function sendTelegramMessage(chatId, text) {
     return;
   }
 
-  const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const tgRes = await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
-      text,
+      text: text,
     }),
   });
 
@@ -69,7 +69,7 @@ async function ensureUserAndFreePlan(telegramUser) {
   const { error: userError } = await supabase.from("users").upsert(
     {
       telegramuserid: telegramUserId,
-      username,
+      username: username,
     },
     {
       onConflict: "telegramuserid",
@@ -123,14 +123,14 @@ module.exports = async function handler(req, res) {
     return res.status(200).json({ ok: true, message: "Webhook alive" });
   }
 
-  const { message } = req.body || {};
+  const message = req.body && req.body.message ? req.body.message : null;
 
   if (!message || !message.text) {
     console.log("No message text in update");
     return res.status(200).json({ ok: true, message: "No message text" });
   }
 
-  const chatId = message.chat?.id;
+  const chatId = message.chat && message.chat.id ? message.chat.id : null;
   const text = (message.text || "").trim();
   const fromUser = message.from;
   const command = getCommand(text);
@@ -153,15 +153,15 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/start") {
-  if (fromUser) {
-    await ensureUserAndFreePlan(fromUser);
-  }
+      if (fromUser) {
+        await ensureUserAndFreePlan(fromUser);
+      }
 
-  await sendTelegramMessage(
-    chatId,
-    "Hello! I'm CipherMind. Your account has been set up. Use /pricing to see plans. Use /payment to see the payment wallet. Use /plan to see your current plan."
-  );
-  return res.status(200).json({ ok: true });
+      await sendTelegramMessage(
+        chatId,
+        "Hello! I'm CipherMind. Your account has been set up. Use /pricing to see plans. Use /payment to see the payment wallet. Use /plan to see your current plan."
+      );
+      return res.status(200).json({ ok: true });
     }
 
     if (command === "/pricing") {
@@ -169,21 +169,21 @@ module.exports = async function handler(req, res) {
         chatId,
         "Subscription Plans:
 
-First 10 wallets: Free
+" +
+          "First 10 wallets: Free
 
-50 wallets: " +
-          PLANS[50].monthly.toFixed(2) +
-          " Solana (SOL)/month
-100 wallets: " +
-          PLANS[100].monthly.toFixed(2) +
-          " Solana (SOL)/month
-200 wallets: " +
-          PLANS[200].monthly.toFixed(2) +
-          " Solana (SOL)/month
+" +
+          "50 wallets: " + PLANS[50].monthly.toFixed(2) + " Solana (SOL)/month
+" +
+          "100 wallets: " + PLANS[100].monthly.toFixed(2) + " Solana (SOL)/month
+" +
+          "200 wallets: " + PLANS[200].monthly.toFixed(2) + " Solana (SOL)/month
 
-All payments are made in Solana (SOL).
+" +
+          "All payments are made in Solana (SOL).
 
-Use /payment to see the payment wallet."
+" +
+          "Use /payment to see the payment wallet."
       );
       return res.status(200).json({ ok: true });
     }
@@ -219,17 +219,14 @@ Send /start first to create your free plan."
         chatId,
         "Your Current Plan:
 
-Plan: " +
-          userPlan.planname +
-          "
-Wallet limit: " +
-          userPlan.walletlimit +
-          "
-Status: " +
-          userPlan.status +
-          "
-Updated: " +
-          formatDate(userPlan.updatedat)
+" +
+          "Plan: " + userPlan.planname + "
+" +
+          "Wallet limit: " + userPlan.walletlimit + "
+" +
+          "Status: " + userPlan.status + "
+" +
+          "Updated: " + formatDate(userPlan.updatedat)
       );
       return res.status(200).json({ ok: true });
     }
@@ -263,7 +260,7 @@ Then message support with your requested plan: 50, 100, or 200 wallets."
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${groqKey}`,
+        Authorization: "Bearer " + groqKey,
       },
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
@@ -289,7 +286,14 @@ Then message support with your requested plan: 50, 100, or 200 wallets."
       return res.status(200).json({ ok: true });
     }
 
-    const reply = aiData.choices?.[0]?.message?.content || "No response.";
+    const reply =
+      aiData &&
+      aiData.choices &&
+      aiData.choices[0] &&
+      aiData.choices[0].message &&
+      aiData.choices[0].message.content
+        ? aiData.choices[0].message.content
+        : "No response.";
 
     await sendTelegramMessage(chatId, reply);
     return res.status(200).json({ ok: true });
