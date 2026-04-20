@@ -31,11 +31,6 @@ function getCommand(text) {
   return (text || "").trim().split(/s+/)[0].split("@")[0].toLowerCase();
 }
 
-function lines(arr) {
-  return arr.join("
-");
-}
-
 async function sendTelegramMessage(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -164,15 +159,7 @@ module.exports = async function handler(req, res) {
 
       await sendTelegramMessage(
         chatId,
-        lines([
-          "Hello! I'm CipherMind.",
-          "",
-          "Your account has been set up.",
-          "",
-          "Use /pricing to see plans.",
-          "Use /payment to see the payment wallet.",
-          "Use /plan to see your current plan."
-        ])
+        "Hello! I'm CipherMind. Your account has been set up. Use /pricing to see plans. Use /payment to see the payment wallet. Use /plan to see your current plan."
       );
       return res.status(200).json({ ok: true });
     }
@@ -180,19 +167,13 @@ module.exports = async function handler(req, res) {
     if (command === "/pricing") {
       await sendTelegramMessage(
         chatId,
-        lines([
-          "Subscription Plans:",
-          "",
-          "First 10 wallets: Free",
-          "",
-          "50 wallets: " + PLANS[50].monthly.toFixed(2) + " Solana (SOL)/month",
-          "100 wallets: " + PLANS[100].monthly.toFixed(2) + " Solana (SOL)/month",
-          "200 wallets: " + PLANS[200].monthly.toFixed(2) + " Solana (SOL)/month",
-          "",
-          "All payments are made in Solana (SOL).",
-          "",
-          "Use /payment to see the payment wallet."
-        ])
+        "Subscription Plans: First 10 wallets free. 50 wallets: " +
+          PLANS[50].monthly.toFixed(2) +
+          " SOL per month. 100 wallets: " +
+          PLANS[100].monthly.toFixed(2) +
+          " SOL per month. 200 wallets: " +
+          PLANS[200].monthly.toFixed(2) +
+          " SOL per month. Use /payment to see the payment wallet."
       );
       return res.status(200).json({ ok: true });
     }
@@ -200,13 +181,9 @@ module.exports = async function handler(req, res) {
     if (command === "/payment") {
       await sendTelegramMessage(
         chatId,
-        lines([
-          "Payment Wallet:",
-          "",
-          PAYMENT_WALLET,
-          "",
-          "Send payment in Solana (SOL) only to this wallet for monthly access."
-        ])
+        "Payment Wallet: " +
+          PAYMENT_WALLET +
+          " Send payment in Solana SOL only to this wallet for monthly access."
       );
       return res.status(200).json({ ok: true });
     }
@@ -217,25 +194,21 @@ module.exports = async function handler(req, res) {
       if (!userPlan) {
         await sendTelegramMessage(
           chatId,
-          lines([
-            "No saved plan was found yet.",
-            "",
-            "Send /start first to create your free plan."
-          ])
+          "No saved plan was found yet. Send /start first to create your free plan."
         );
         return res.status(200).json({ ok: true });
       }
 
       await sendTelegramMessage(
         chatId,
-        lines([
-          "Your Current Plan:",
-          "",
-          "Plan: " + userPlan.planname,
-          "Wallet limit: " + userPlan.walletlimit,
-          "Status: " + userPlan.status,
-          "Updated: " + formatDate(userPlan.updatedat)
-        ])
+        "Your Current Plan: Plan " +
+          userPlan.planname +
+          ", wallet limit " +
+          userPlan.walletlimit +
+          ", status " +
+          userPlan.status +
+          ", updated " +
+          formatDate(userPlan.updatedat)
       );
       return res.status(200).json({ ok: true });
     }
@@ -243,13 +216,9 @@ module.exports = async function handler(req, res) {
     if (command === "/pay") {
       await sendTelegramMessage(
         chatId,
-        lines([
-          "To subscribe, send payment in Solana (SOL) to:",
-          "",
-          PAYMENT_WALLET,
-          "",
-          "Then message support with your requested plan: 50, 100, or 200 wallets."
-        ])
+        "To subscribe, send payment in Solana SOL to " +
+          PAYMENT_WALLET +
+          " and then message support with your requested plan: 50, 100, or 200 wallets."
       );
       return res.status(200).json({ ok: true });
     }
