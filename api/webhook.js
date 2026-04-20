@@ -23,8 +23,15 @@ const supabase =
       })
     : null;
 
+// In-memory session state (resets on redeploy, fine for MVP)
+const userSessions = {};
+
 function formatDate(date) {
   return new Date(date).toLocaleString();
+}
+
+function isValidSolanaAddress(address) {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
 }
 
 function getCommand(text) {
@@ -113,6 +120,65 @@ async function getUserPlan(telegramUserId) {
   return data;
 }
 
+async function getTrackedWallets(telegramUserId) {
+  const { data, error } = await supabase
+    .from("trackedwallets")
+    .select("id, wallet_address, label, created_at")
+    .eq("telegram_user_id", String(telegramUserId))
+    .order("created_at", { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function addTrackedWallet(telegramUserId, walletAddress, label) {
+  const currentPlan = await getUserPlan(telegramUserId);
+
+  if (!currentPlan) {
+    return { ok: false, message: "No saved plan found. Send /start first." };
+  }
+
+  const existingWallets = await getTrackedWallets(telegramUserId);
+
+  if (existingWallets.find(function(w) { return w.wallet_address === walletAddress; })) {
+    return { ok: false, message: "That wallet is already being tracked." };
+  }
+
+  if (existingWallets.length >= currentPlan.wallet_limit) {
+    return {
+      ok: false,
+      message: "You reached your wallet limit of " + currentPlan.wallet_limit + ". Use /pricing or /pay to upgrade.",
+    };
+  }
+
+  const { error } = await supabase.from("trackedwallets").insert({
+    telegram_user_id: String(telegramUserId),
+    wallet_address: walletAddress,
+    label: label || null,
+  });
+
+  if (error) throw error;
+
+  return { ok: true, message: "Wallet added successfully." };
+}
+
+async function removeTrackedWallet(telegramUserId, walletAddress) {
+  const { data, error } = await supabase
+    .from("trackedwallets")
+    .delete()
+    .eq("telegram_user_id", String(telegramUserId))
+    .eq("wallet_address", walletAddress)
+    .select("id");
+
+  if (error) throw error;
+
+  if (!data || data.length === 0) {
+    return { ok: false, message: "That wallet was not found in your tracked list." };
+  }
+
+  return { ok: true, message: "Wallet removed successfully." };
+}
+
 module.exports = async function handler(req, res) {
   console.log("Webhook hit", {
     method: req.method,
@@ -133,14 +199,16 @@ module.exports = async function handler(req, res) {
   const chatId = message.chat && message.chat.id ? message.chat.id : null;
   const text = (message.text || "").trim();
   const fromUser = message.from;
+  const userId = fromUser ? String(fromUser.id) : null;
   const command = getCommand(text);
+  const parts = text.split(/\s+/);
 
   console.log("Incoming message", { chatId, text, command });
 
   try {
-    if (!chatId) {
-      console.error("Missing chatId");
-      return res.status(200).json({ ok: true, message: "Missing chatId" });
+    if (!chatId || !userId) {
+      console.error("Missing chatId or userId");
+      return res.status(200).json({ ok: true, message: "Missing chatId or userId" });
     }
 
     if (!supabase) {
@@ -149,6 +217,63 @@ module.exports = async function handler(req, res) {
         chatId,
         "Database is not configured yet. Add SUPABASEURL and SUPABASESERVICEROLEKEY in Vercel."
       );
+      return res.status(200).json({ ok: true });
+    }
+
+    // --- Handle step-by-step /addwallet session ---
+    const session = userSessions[userId];
+
+    if (session && session.step === "awaiting_address") {
+      // User is entering their wallet address
+      const walletAddress = text;
+
+      if (command.startsWith("/")) {
+        // User cancelled by sending another command
+        delete userSessions[userId];
+      } else if (!isValidSolanaAddress(walletAddress)) {
+        await sendTelegramMessage(
+          chatId,
+          "That does not look like a valid Solana wallet address. Please try again or send /cancel to stop."
+        );
+        return res.status(200).json({ ok: true });
+      } else {
+        // Valid address — ask for a name
+        userSessions[userId] = { step: "awaiting_label", walletAddress: walletAddress };
+        await sendTelegramMessage(
+          chatId,
+          "Step 2: Enter a name for this wallet. Or send /skip to add it without a name."
+        );
+        return res.status(200).json({ ok: true });
+      }
+    }
+
+    if (session && session.step === "awaiting_label") {
+      // User is entering a label for their wallet
+      if (command.startsWith("/") && command !== "/skip") {
+        // User cancelled by sending another command
+        delete userSessions[userId];
+      } else {
+        const label = command === "/skip" ? null : text;
+        const walletAddress = session.walletAddress;
+        delete userSessions[userId];
+
+        const result = await addTrackedWallet(userId, walletAddress, label);
+
+        await sendTelegramMessage(
+          chatId,
+          result.ok
+            ? "Wallet saved! Address: " + walletAddress + (label ? "\nName: " + label : "")
+            : result.message
+        );
+        return res.status(200).json({ ok: true });
+      }
+    }
+
+    // --- Standard commands ---
+
+    if (command === "/cancel") {
+      delete userSessions[userId];
+      await sendTelegramMessage(chatId, "Cancelled.");
       return res.status(200).json({ ok: true });
     }
 
@@ -189,12 +314,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/plan") {
-      if (!fromUser) {
-        await sendTelegramMessage(chatId, "Could not identify user. Please try again.");
-        return res.status(200).json({ ok: true });
-      }
-
-      const userPlan = await getUserPlan(fromUser.id);
+      const userPlan = await getUserPlan(userId);
 
       if (!userPlan) {
         await sendTelegramMessage(
@@ -228,6 +348,56 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (command === "/addwallet") {
+      // Start the step-by-step flow
+      userSessions[userId] = { step: "awaiting_address" };
+      await sendTelegramMessage(
+        chatId,
+        "Step 1: Enter your Solana wallet address:"
+      );
+      return res.status(200).json({ ok: true });
+    }
+
+    if (command === "/wallets") {
+      const wallets = await getTrackedWallets(userId);
+
+      if (!wallets.length) {
+        await sendTelegramMessage(
+          chatId,
+          "You are not tracking any wallets yet. Use /addwallet to add one."
+        );
+        return res.status(200).json({ ok: true });
+      }
+
+      const formatted = wallets
+        .map(function(wallet, index) {
+          return (index + 1) + ". " + wallet.wallet_address + (wallet.label ? " (" + wallet.label + ")" : "");
+        })
+        .join("\n");
+
+      await sendTelegramMessage(chatId, "Your Tracked Wallets:\n\n" + formatted);
+      return res.status(200).json({ ok: true });
+    }
+
+    if (command === "/removewallet") {
+      if (parts.length < 2) {
+        await sendTelegramMessage(chatId, "Usage: /removewallet WALLET_ADDRESS");
+        return res.status(200).json({ ok: true });
+      }
+
+      const walletAddress = parts[1];
+      const result = await removeTrackedWallet(userId, walletAddress);
+
+      await sendTelegramMessage(chatId, result.message);
+      return res.status(200).json({ ok: true });
+    }
+
+    // --- AI fallback — only for non-commands ---
+    if (command.startsWith("/")) {
+      await sendTelegramMessage(chatId, "Unknown command. Use /start, /plan, /pricing, /payment, /pay, /addwallet, /wallets, or /removewallet.");
+      return res.status(200).json({ ok: true });
+    }
+
     const groqKey = process.env.GROQ_API_KEY;
 
     if (!groqKey) {
@@ -248,7 +418,7 @@ module.exports = async function handler(req, res) {
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [
-          { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
+          { role: "system", content: "You are CipherMind, a helpful Telegram assistant focused on Solana crypto." },
           { role: "user", content: text },
         ],
       }),
