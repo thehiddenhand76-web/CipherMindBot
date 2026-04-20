@@ -11,11 +11,9 @@ const PLANS = {
   200: { monthly: 0.5 },
 };
 
-const supabaseUrl =
-  process.env.SUPABASE_URL || process.env.SUPABASEURL;
-
+const supabaseUrl = process.env.SUPABASEURL || process.env.SUPABASE_URL;
 const supabaseServiceRoleKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASESERVICEROLEKEY;
+  process.env.SUPABASESERVICEROLEKEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
@@ -30,10 +28,6 @@ const supabase =
 
 function formatDate(date) {
   return new Date(date).toLocaleString();
-}
-
-function isValidSolanaAddress(address) {
-  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
 }
 
 function getCommand(text) {
@@ -122,66 +116,6 @@ async function getUserPlan(telegramUserId) {
   return data;
 }
 
-async function getTrackedWallets(telegramUserId) {
-  const { data, error } = await supabase
-    .from("trackedwallets")
-    .select("id, walletaddress, label, chain, createdat")
-    .eq("telegramuserid", String(telegramUserId))
-    .order("createdat", { ascending: true });
-
-  if (error) throw error;
-  return data || [];
-}
-
-async function addTrackedWallet(telegramUserId, walletAddress, label) {
-  const currentPlan = await getUserPlan(telegramUserId);
-
-  if (!currentPlan) {
-    return { ok: false, message: "No saved plan found. Send /start first." };
-  }
-
-  const existingWallets = await getTrackedWallets(telegramUserId);
-
-  if (existingWallets.find((w) => w.walletaddress === walletAddress)) {
-    return { ok: false, message: "That wallet is already being tracked." };
-  }
-
-  if (existingWallets.length >= currentPlan.walletlimit) {
-    return {
-      ok: false,
-      message: "You reached your wallet limit for your current plan. Use /pricing or /pay to upgrade.",
-    };
-  }
-
-  const { error } = await supabase.from("trackedwallets").insert({
-    telegramuserid: String(telegramUserId),
-    walletaddress: walletAddress,
-    chain: "solana",
-    label: label || null,
-  });
-
-  if (error) throw error;
-
-  return { ok: true, message: "Wallet added successfully." };
-}
-
-async function removeTrackedWallet(telegramUserId, walletAddress) {
-  const { data, error } = await supabase
-    .from("trackedwallets")
-    .delete()
-    .eq("telegramuserid", String(telegramUserId))
-    .eq("walletaddress", walletAddress)
-    .select("id");
-
-  if (error) throw error;
-
-  if (!data || data.length === 0) {
-    return { ok: false, message: "That wallet was not found in your tracked list." };
-  }
-
-  return { ok: true, message: "Wallet removed successfully." };
-}
-
 module.exports = async function handler(req, res) {
   console.log("Webhook hit", {
     method: req.method,
@@ -203,7 +137,6 @@ module.exports = async function handler(req, res) {
   const text = (message.text || "").trim();
   const fromUser = message.from;
   const command = getCommand(text);
-  const parts = text.split(/s+/);
 
   console.log("Incoming message", { chatId, text, command });
 
@@ -215,15 +148,15 @@ module.exports = async function handler(req, res) {
 
     if (!supabase) {
       console.error("Missing Supabase environment variables", {
-        has_SUPABASE_URL: !!process.env.SUPABASE_URL,
         has_SUPABASEURL: !!process.env.SUPABASEURL,
-        has_SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        has_SUPABASE_URL: !!process.env.SUPABASE_URL,
         has_SUPABASESERVICEROLEKEY: !!process.env.SUPABASESERVICEROLEKEY,
+        has_SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       });
 
       await sendTelegramMessage(
         chatId,
-        "Database is not configured yet. Add SUPABASE_URL or SUPABASEURL, and SUPABASE_SERVICE_ROLE_KEY or SUPABASESERVICEROLEKEY in Vercel."
+        "Database is not configured yet. Add Supabase environment variables in Vercel."
       );
       return res.status(200).json({ ok: true });
     }
@@ -310,90 +243,6 @@ ${PAYMENT_WALLET}
 
 Then message support with your requested plan: 50, 100, or 200 wallets.`
       );
-      return res.status(200).json({ ok: true });
-    }
-
-    if (command === "/addwallet") {
-      if (parts.length < 2) {
-        await sendTelegramMessage(
-          chatId,
-          "Usage:
-/addwallet WALLET_ADDRESS LABEL
-
-Example:
-/addwallet 8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j Main"
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const walletAddress = parts[1];
-      const label = parts.slice(2).join(" ").trim();
-
-      if (!isValidSolanaAddress(walletAddress)) {
-        await sendTelegramMessage(
-          chatId,
-          "That does not look like a valid Solana wallet address."
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const result = await addTrackedWallet(chatId, walletAddress, label);
-
-      await sendTelegramMessage(
-        chatId,
-        result.ok
-          ? `Wallet added successfully.
-
-Address: ${walletAddress}${label ? `
-Label: ${label}` : ""}`
-          : result.message
-      );
-      return res.status(200).json({ ok: true });
-    }
-
-    if (command === "/wallets") {
-      const wallets = await getTrackedWallets(chatId);
-
-      if (!wallets.length) {
-        await sendTelegramMessage(
-          chatId,
-          "You are not tracking any wallets yet.
-
-Use /addwallet WALLET_ADDRESS LABEL to add one."
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const formatted = wallets
-        .map((wallet, index) => {
-          return `${index + 1}. ${wallet.walletaddress}${wallet.label ? ` (${wallet.label})` : ""}`;
-        })
-        .join("
-");
-
-      await sendTelegramMessage(
-        chatId,
-        `Your Tracked Wallets:
-
-${formatted}`
-      );
-      return res.status(200).json({ ok: true });
-    }
-
-    if (command === "/removewallet") {
-      if (parts.length < 2) {
-        await sendTelegramMessage(
-          chatId,
-          "Usage:
-/removewallet WALLET_ADDRESS"
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const walletAddress = parts[1];
-      const result = await removeTrackedWallet(chatId, walletAddress);
-
-      await sendTelegramMessage(chatId, result.message);
       return res.status(200).json({ ok: true });
     }
 
