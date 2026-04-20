@@ -4,13 +4,11 @@ const { createClient } = require("@supabase/supabase-js");
 
 const PAYMENT_WALLET = "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const FREE_WALLET_LIMIT = 10;
-const SOLANA_ADDRESS_REGEX = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
-const PLAN_CONFIG = {
-  free: { walletLimit: 10, price: 0, label: "Free" },
-  "50": { walletLimit: 50, price: 0.3, label: "50 wallets" },
-  "100": { walletLimit: 100, price: 0.4, label: "100 wallets" },
-  "200": { walletLimit: 200, price: 0.5, label: "200 wallets" },
+const PLANS = {
+  50: { monthly: 0.3 },
+  100: { monthly: 0.4 },
+  200: { monthly: 0.5 },
 };
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -28,29 +26,15 @@ const supabase =
     : null;
 
 function formatDate(date) {
-  if (!date) return "N/A";
   return new Date(date).toLocaleString();
 }
 
-function normalizeCommand(text) {
-  return text.split(" ")[0].split("@")[0].toLowerCase();
+function isValidSolanaAddress(address) {
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(address);
 }
 
-function parseCommandArgs(text) {
-  const parts = text.trim().split(/s+/);
-  return parts.slice(1);
-}
-
-function getPlanDetails(planName, walletLimit) {
-  if (PLAN_CONFIG[planName]) {
-    return PLAN_CONFIG[planName];
-  }
-
-  return {
-    walletLimit: walletLimit || FREE_WALLET_LIMIT,
-    price: null,
-    label: planName || "Unknown",
-  };
+function getCommand(text) {
+  return (text || "").trim().split(/s+/)[0].split("@")[0].toLowerCase();
 }
 
 async function sendTelegramMessage(chatId, text) {
@@ -144,52 +128,38 @@ async function getUserPlan(telegramUserId) {
   return data;
 }
 
-async function getWalletCount(telegramUserId) {
-  const { count, error } = await supabase
+async function getTrackedWallets(telegramUserId) {
+  const { data, error } = await supabase
     .from("trackedwallets")
-    .select("*", { count: "exact", head: true })
-    .eq("telegramuserid", String(telegramUserId));
+    .select("id, walletaddress, label, chain, createdat")
+    .eq("telegramuserid", String(telegramUserId))
+    .order("createdat", { ascending: true });
 
   if (error) {
     throw error;
   }
 
-  return count || 0;
+  return data || [];
 }
 
-async function addWallet(telegramUserId, walletAddress, label) {
-  const plan = await getUserPlan(telegramUserId);
+async function addTrackedWallet(telegramUserId, walletAddress, label) {
+  const currentPlan = await getUserPlan(telegramUserId);
 
-  if (!plan) {
-    return { ok: false, message: "No plan found. Send /start first." };
+  if (!currentPlan) {
+    return { ok: false, message: "No saved plan found. Send /start first." };
   }
 
-  const currentCount = await getWalletCount(telegramUserId);
-  const walletLimit = plan.walletlimit || FREE_WALLET_LIMIT;
+  const existingWallets = await getTrackedWallets(telegramUserId);
 
-  if (currentCount >= walletLimit) {
+  if (existingWallets.find((w) => w.walletaddress === walletAddress)) {
+    return { ok: false, message: "That wallet is already being tracked." };
+  }
+
+  if (existingWallets.length >= currentPlan.walletlimit) {
     return {
       ok: false,
-      message: `You have reached your wallet limit for the ${plan.planname} plan.
-
-Current limit: ${walletLimit}
-Use /pricing to view upgrade options.`,
+      message: `You reached your wallet limit (${currentPlan.walletlimit}) for your current plan. Use /pricing or /pay to upgrade.`,
     };
-  }
-
-  const { data: existingWallet, error: existingWalletError } = await supabase
-    .from("trackedwallets")
-    .select("id")
-    .eq("telegramuserid", String(telegramUserId))
-    .eq("walletaddress", walletAddress)
-    .maybeSingle();
-
-  if (existingWalletError) {
-    throw existingWalletError;
-  }
-
-  if (existingWallet) {
-    return { ok: false, message: "That wallet is already being tracked." };
   }
 
   const { error } = await supabase.from("trackedwallets").insert({
@@ -206,27 +176,13 @@ Use /pricing to view upgrade options.`,
   return { ok: true, message: "Wallet added successfully." };
 }
 
-async function listWallets(telegramUserId) {
-  const { data, error } = await supabase
-    .from("trackedwallets")
-    .select("walletaddress, chain, label, createdat")
-    .eq("telegramuserid", String(telegramUserId))
-    .order("createdat", { ascending: true });
-
-  if (error) {
-    throw error;
-  }
-
-  return data || [];
-}
-
-async function removeWallet(telegramUserId, walletAddress) {
+async function removeTrackedWallet(telegramUserId, walletAddress) {
   const { data, error } = await supabase
     .from("trackedwallets")
     .delete()
     .eq("telegramuserid", String(telegramUserId))
     .eq("walletaddress", walletAddress)
-    .select(); 
+    .select("id");
 
   if (error) {
     throw error;
@@ -237,40 +193,6 @@ async function removeWallet(telegramUserId, walletAddress) {
   }
 
   return { ok: true, message: "Wallet removed successfully." };
-}
-
-async function createPendingPayment(telegramUserId, requestedPlan) {
-  const planKey = String(requestedPlan);
-  const selectedPlan = PLAN_CONFIG[planKey];
-
-  if (!selectedPlan || planKey === "free") {
-    return { ok: false, message: "Invalid plan. Use /pay 50, /pay 100, or /pay 200." };
-  }
-
-  const { error } = await supabase.from("pendingpayments").insert({
-    telegramuserid: String(telegramUserId),
-    planrequested: planKey,
-    amount: selectedPlan.price,
-    billingcycle: "monthly",
-    status: "pending",
-  });
-
-  if (error) {
-    throw error;
-  }
-
-  return {
-    ok: true,
-    message: `Payment Request Created
-
-Requested plan: ${selectedPlan.label}
-Price: ${selectedPlan.price.toFixed(2)} Solana (SOL)/month
-
-Send payment in Solana (SOL) only to:
-${PAYMENT_WALLET}
-
-After payment is confirmed, your plan can be updated.`,
-  };
 }
 
 module.exports = async function handler(req, res) {
@@ -292,10 +214,10 @@ module.exports = async function handler(req, res) {
   const chatId = message.chat?.id;
   const text = (message.text || "").trim();
   const fromUser = message.from;
-  const command = normalizeCommand(text);
-  const args = parseCommandArgs(text);
+  const command = getCommand(text);
+  const parts = text.split(/s+/);
 
-  console.log("Incoming message", { chatId, text });
+  console.log("Incoming message", { chatId, text, command });
 
   try {
     if (!chatId) {
@@ -325,10 +247,7 @@ Your account has been set up.
 
 Use /pricing to see plans.
 Use /payment to see the payment wallet.
-Use /plan to see your current plan.
-Use /pay to subscribe to a plan.
-Use /addwallet to track a Solana wallet.
-Use /wallets to view tracked wallets.`
+Use /plan to see your current plan.`
       );
       return res.status(200).json({ ok: true });
     }
@@ -340,14 +259,13 @@ Use /wallets to view tracked wallets.`
 
 First 10 wallets: Free
 
-50 wallets: ${PLAN_CONFIG["50"].price.toFixed(2)} Solana (SOL)/month
-100 wallets: ${PLAN_CONFIG["100"].price.toFixed(2)} Solana (SOL)/month
-200 wallets: ${PLAN_CONFIG["200"].price.toFixed(2)} Solana (SOL)/month
+50 wallets: ${PLANS[50].monthly.toFixed(2)} Solana (SOL)/month
+100 wallets: ${PLANS[100].monthly.toFixed(2)} Solana (SOL)/month
+200 wallets: ${PLANS[200].monthly.toFixed(2)} Solana (SOL)/month
 
 All payments are made in Solana (SOL).
 
-Use /payment to see the payment wallet.
-Use /pay 50, /pay 100, or /pay 200 to subscribe.`
+Use /payment to see the payment wallet.`
       );
       return res.status(200).json({ ok: true });
     }
@@ -377,14 +295,12 @@ Send /start first to create your free plan.`
         return res.status(200).json({ ok: true });
       }
 
-      const details = getPlanDetails(userPlan.planname, userPlan.walletlimit);
-
       await sendTelegramMessage(
         chatId,
         `Your Current Plan:
 
 Plan: ${userPlan.planname}
-Wallet limit: ${details.walletLimit}
+Wallet limit: ${userPlan.walletlimit}
 Status: ${userPlan.status}
 Updated: ${formatDate(userPlan.updatedat)}`
       );
@@ -392,51 +308,43 @@ Updated: ${formatDate(userPlan.updatedat)}`
     }
 
     if (command === "/pay") {
-      if (args.length === 0) {
-        await sendTelegramMessage(
-          chatId,
-          `To subscribe, use one of these:
+      await sendTelegramMessage(
+        chatId,
+        `To subscribe, send payment in Solana (SOL) to:
 
-/pay 50
-/pay 100
-/pay 200
+${PAYMENT_WALLET}
 
-All payments are in Solana (SOL).`
-        );
-        return res.status(200).json({ ok: true });
-      }
-
-      const result = await createPendingPayment(chatId, args[0]);
-      await sendTelegramMessage(chatId, result.message);
+Then message support with your requested plan: 50, 100, or 200 wallets.`
+      );
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/addwallet") {
-      if (args.length === 0) {
+      if (parts.length < 2) {
         await sendTelegramMessage(
           chatId,
           `Usage:
-
 /addwallet WALLET_ADDRESS LABEL
 
 Example:
-/addwallet 7f3xExampleWalletAddress123456789 MainWallet`
+/addwallet 8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j Main`
         );
         return res.status(200).json({ ok: true });
       }
 
-      const walletAddress = args[0];
-      const label = args.slice(1).join(" ").trim();
+      const walletAddress = parts[1];
+      const label = parts.slice(2).join(" ").trim();
 
-      if (!SOLANA_ADDRESS_REGEX.test(walletAddress)) {
+      if (!isValidSolanaAddress(walletAddress)) {
         await sendTelegramMessage(
           chatId,
-          "That does not look like a valid Solana wallet address. Please check it and try again."
+          "That does not look like a valid Solana wallet address."
         );
         return res.status(200).json({ ok: true });
       }
 
-      const result = await addWallet(chatId, walletAddress, label);
+      const result = await addTrackedWallet(chatId, walletAddress, label);
+
       await sendTelegramMessage(
         chatId,
         result.ok
@@ -450,7 +358,7 @@ Label: ${label}` : ""}`
     }
 
     if (command === "/wallets") {
-      const wallets = await listWallets(chatId);
+      const wallets = await getTrackedWallets(chatId);
 
       if (!wallets.length) {
         await sendTelegramMessage(
@@ -462,34 +370,35 @@ Use /addwallet WALLET_ADDRESS LABEL to add one."
         return res.status(200).json({ ok: true });
       }
 
-      const lines = wallets.map((wallet, index) => {
-        const labelPart = wallet.label ? ` (${wallet.label})` : "";
-        return `${index + 1}. ${wallet.walletaddress}${labelPart}`;
-      });
+      const formatted = wallets
+        .map((wallet, index) => {
+          return `${index + 1}. ${wallet.walletaddress}${wallet.label ? ` (${wallet.label})` : ""}`;
+        })
+        .join("
+");
 
       await sendTelegramMessage(
         chatId,
         `Your Tracked Wallets:
 
-${lines.join("
-")}`
+${formatted}`
       );
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/removewallet") {
-      if (args.length === 0) {
+      if (parts.length < 2) {
         await sendTelegramMessage(
           chatId,
           `Usage:
-
 /removewallet WALLET_ADDRESS`
         );
         return res.status(200).json({ ok: true });
       }
 
-      const walletAddress = args[0];
-      const result = await removeWallet(chatId, walletAddress);
+      const walletAddress = parts[1];
+      const result = await removeTrackedWallet(chatId, walletAddress);
+
       await sendTelegramMessage(chatId, result.message);
       return res.status(200).json({ ok: true });
     }
@@ -514,11 +423,7 @@ ${lines.join("
       body: JSON.stringify({
         model: "llama-3.1-8b-instant",
         messages: [
-          {
-            role: "system",
-            content:
-              "You are CipherMind, a helpful Telegram assistant for Solana wallet tracking and subscription support.",
-          },
+          { role: "system", content: "You are CipherMind, a helpful Telegram assistant." },
           { role: "user", content: text },
         ],
       }),
