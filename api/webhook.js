@@ -189,7 +189,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/plan") {
-      const userPlan = await getUserPlan(chatId);
+      const userPlan = await getUserPlan(fromUser.id);
 
       if (!userPlan) {
         await sendTelegramMessage(
