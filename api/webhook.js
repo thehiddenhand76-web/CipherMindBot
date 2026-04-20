@@ -9,9 +9,8 @@ const PLANS = {
   200: { monthly: 0.5 },
 };
 
-const supabaseUrl = process.env.SUPABASE_URL || process.env.SUPABASEURL;
-const supabaseServiceRoleKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASESERVICEROLEKEY;
+const supabaseUrl = process.env.SUPABASEURL;
+const supabaseServiceRoleKey = process.env.SUPABASESERVICEROLEKEY;
 
 const supabase =
   supabaseUrl && supabaseServiceRoleKey
@@ -24,22 +23,23 @@ const supabase =
       })
     : null;
 
-function getCommand(text) {
-  return (text || "").trim().split(/s+/)[0].split("@")[0].toLowerCase();
-}
-
 function formatDate(date) {
   return new Date(date).toLocaleString();
 }
 
+function getCommand(text) {
+  return (text || "").trim().split(/s+/)[0].split("@")[0].toLowerCase();
+}
+
 async function sendTelegramMessage(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
+
   if (!token) {
     console.error("Missing TELEGRAM_BOT_TOKEN");
     return;
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -48,17 +48,20 @@ async function sendTelegramMessage(chatId, text) {
     }),
   });
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) {
+  const tgData = await tgRes.json().catch(() => ({}));
+
+  if (!tgRes.ok || tgData.ok === false) {
     console.error("Telegram sendMessage failed", {
-      status: response.status,
-      data,
+      status: tgRes.status,
+      data: tgData,
     });
   }
 }
 
 async function ensureUserAndFreePlan(telegramUser) {
-  if (!supabase) throw new Error("Supabase client not initialized");
+  if (!supabase) {
+    throw new Error("Supabase client not initialized");
+  }
 
   const telegramUserId = String(telegramUser.id);
   const username = telegramUser.username || null;
@@ -72,6 +75,7 @@ async function ensureUserAndFreePlan(telegramUser) {
       onConflict: "telegramuserid",
     }
   );
+
   if (userError) throw userError;
 
   const { data: existingPlan, error: existingPlanError } = await supabase
@@ -89,12 +93,15 @@ async function ensureUserAndFreePlan(telegramUser) {
       walletlimit: FREE_WALLET_LIMIT,
       status: "active",
     });
+
     if (insertPlanError) throw insertPlanError;
   }
 }
 
 async function getUserPlan(telegramUserId) {
-  if (!supabase) throw new Error("Supabase client not initialized");
+  if (!supabase) {
+    throw new Error("Supabase client not initialized");
+  }
 
   const { data, error } = await supabase
     .from("plans")
@@ -107,29 +114,40 @@ async function getUserPlan(telegramUserId) {
 }
 
 module.exports = async function handler(req, res) {
+  console.log("Webhook hit", {
+    method: req.method,
+    hasBody: !!req.body,
+  });
+
+  if (req.method !== "POST") {
+    return res.status(200).json({ ok: true, message: "Webhook alive" });
+  }
+
+  const { message } = req.body || {};
+
+  if (!message || !message.text) {
+    console.log("No message text in update");
+    return res.status(200).json({ ok: true, message: "No message text" });
+  }
+
+  const chatId = message.chat?.id;
+  const text = (message.text || "").trim();
+  const fromUser = message.from;
+  const command = getCommand(text);
+
+  console.log("Incoming message", { chatId, text, command });
+
   try {
-    if (req.method !== "POST") {
-      return res.status(200).json({ ok: true, message: "Webhook alive" });
-    }
-
-    const { message } = req.body || {};
-    if (!message || !message.text) {
-      return res.status(200).json({ ok: true, message: "No message text" });
-    }
-
-    const chatId = message.chat?.id;
-    const text = (message.text || "").trim();
-    const fromUser = message.from;
-    const command = getCommand(text);
-
     if (!chatId) {
+      console.error("Missing chatId");
       return res.status(200).json({ ok: true, message: "Missing chatId" });
     }
 
     if (!supabase) {
+      console.error("Missing Supabase environment variables");
       await sendTelegramMessage(
         chatId,
-        "Database is not configured yet. Add SUPABASE_URL or SUPABASEURL, and SUPABASE_SERVICE_ROLE_KEY or SUPABASESERVICEROLEKEY in Vercel."
+        "Database is not configured yet. Add SUPABASEURL and SUPABASESERVICEROLEKEY in Vercel."
       );
       return res.status(200).json({ ok: true });
     }
@@ -222,6 +240,7 @@ Then message support with your requested plan: 50, 100, or 200 wallets.`
     const groqKey = process.env.GROQ_API_KEY;
 
     if (!groqKey) {
+      console.error("Missing GROQ_API_KEY");
       await sendTelegramMessage(
         chatId,
         "AI replies are temporarily unavailable, but command features still work."
@@ -247,6 +266,11 @@ Then message support with your requested plan: 50, 100, or 200 wallets.`
     const aiData = await aiRes.json().catch(() => ({}));
 
     if (!aiRes.ok) {
+      console.error("Groq request failed", {
+        status: aiRes.status,
+        data: aiData,
+      });
+
       await sendTelegramMessage(
         chatId,
         "CipherMind AI is temporarily unavailable. Try again in a minute."
@@ -255,10 +279,23 @@ Then message support with your requested plan: 50, 100, or 200 wallets.`
     }
 
     const reply = aiData.choices?.[0]?.message?.content || "No response.";
+
     await sendTelegramMessage(chatId, reply);
     return res.status(200).json({ ok: true });
   } catch (error) {
     console.error("Webhook handler error", error);
-    return res.status(200).json({ ok: true });
+
+    try {
+      if (chatId) {
+        await sendTelegramMessage(
+          chatId,
+          "CipherMind is temporarily unavailable. Try again in a minute."
+        );
+      }
+    } catch (sendError) {
+      console.error("Failed sending fallback Telegram message", sendError);
+    }
+
+    return res.status(200).json({ ok: true, errorHandled: true });
   }
 };
