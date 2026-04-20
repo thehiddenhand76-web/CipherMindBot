@@ -82,9 +82,7 @@ async function ensureUserAndFreePlan(telegramUser) {
     }
   );
 
-  if (userError) {
-    throw userError;
-  }
+  if (userError) throw userError;
 
   const { data: existingPlan, error: existingPlanError } = await supabase
     .from("plans")
@@ -92,9 +90,7 @@ async function ensureUserAndFreePlan(telegramUser) {
     .eq("telegramuserid", telegramUserId)
     .maybeSingle();
 
-  if (existingPlanError) {
-    throw existingPlanError;
-  }
+  if (existingPlanError) throw existingPlanError;
 
   if (!existingPlan) {
     const { error: insertPlanError } = await supabase.from("plans").insert({
@@ -104,9 +100,7 @@ async function ensureUserAndFreePlan(telegramUser) {
       status: "active",
     });
 
-    if (insertPlanError) {
-      throw insertPlanError;
-    }
+    if (insertPlanError) throw insertPlanError;
   }
 }
 
@@ -121,10 +115,7 @@ async function getUserPlan(telegramUserId) {
     .eq("telegramuserid", String(telegramUserId))
     .maybeSingle();
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return data;
 }
 
@@ -135,10 +126,7 @@ async function getTrackedWallets(telegramUserId) {
     .eq("telegramuserid", String(telegramUserId))
     .order("createdat", { ascending: true });
 
-  if (error) {
-    throw error;
-  }
-
+  if (error) throw error;
   return data || [];
 }
 
@@ -169,9 +157,7 @@ async function addTrackedWallet(telegramUserId, walletAddress, label) {
     label: label || null,
   });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   return { ok: true, message: "Wallet added successfully." };
 }
@@ -184,9 +170,7 @@ async function removeTrackedWallet(telegramUserId, walletAddress) {
     .eq("walletaddress", walletAddress)
     .select("id");
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 
   if (!data || data.length === 0) {
     return { ok: false, message: "That wallet was not found in your tracked list." };
@@ -206,6 +190,7 @@ module.exports = async function handler(req, res) {
   }
 
   const { message } = req.body || {};
+
   if (!message || !message.text) {
     console.log("No message text in update");
     return res.status(200).json({ ok: true, message: "No message text" });
@@ -348,7 +333,7 @@ Example:
       await sendTelegramMessage(
         chatId,
         result.ok
-          ? `${result.message}
+          ? `Wallet added successfully.
 
 Address: ${walletAddress}${label ? `
 Label: ${label}` : ""}`
@@ -363,9 +348,9 @@ Label: ${label}` : ""}`
       if (!wallets.length) {
         await sendTelegramMessage(
           chatId,
-          "You are not tracking any wallets yet.
+          `You are not tracking any wallets yet.
 
-Use /addwallet WALLET_ADDRESS LABEL to add one."
+Use /addwallet WALLET_ADDRESS LABEL to add one.`
         );
         return res.status(200).json({ ok: true });
       }
