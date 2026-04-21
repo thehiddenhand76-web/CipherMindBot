@@ -206,15 +206,19 @@ async function handleAdd(chatId, fromUser, text) {
   if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify your account."); return; }
   const args = getArgs(text);
   const walletAddress = args[0];
+  const telegramUserId = String(fromUser.id);
+
   if (!walletAddress) {
-    await sendTelegramMessage(chatId, "Please provide a wallet address.\n\nUsage: /add <wallet_address>");
+    await setUserState(telegramUserId, "awaiting_wallet_address", { chat_id: String(chatId) });
+    await sendTelegramMessage(chatId, "Please send your Solana wallet address.");
     return;
   }
+
   if (!isValidSolanaAddress(walletAddress)) {
     await sendTelegramMessage(chatId, "Invalid Solana address. Please check and try again.");
     return;
   }
-  const telegramUserId = String(fromUser.id);
+
   await setUserState(telegramUserId, "awaiting_wallet_name", { wallet_address: walletAddress, chat_id: String(chatId) });
   await sendTelegramMessage(chatId, "Wallet found: " + shortenAddress(walletAddress) + "\n\nWhat would you like to name this wallet?");
 }
@@ -243,7 +247,7 @@ async function handleWallets(chatId, fromUser) {
   const wallets = await getTrackedWallets(telegramUserId);
   const userPlan = await getUserPlan(telegramUserId);
   if (wallets.length === 0) {
-    await sendTelegramMessage(chatId, "No wallets tracked yet.\n\nUse /add <wallet_address> to start.");
+    await sendTelegramMessage(chatId, "No wallets tracked yet.\n\nUse /add to start.");
     return;
   }
   const limit = userPlan ? userPlan.wallet_limit : FREE_WALLET_LIMIT;
@@ -287,7 +291,7 @@ module.exports = async function handler(req, res) {
       if (fromUser) await ensureUserAndFreePlan(fromUser);
       await sendTelegramMessage(
         chatId,
-        "Hello! I'm CipherMind.\n\nCommands:\n/add <address> — add a wallet to track\n/untrack <address> — stop tracking a wallet\n/wallets — list your tracked wallets\n/plan — your current plan\n/pricing — subscription plans\n/payment — payment wallet"
+        "Hello! I'm CipherMind.\n\nCommands:\n/add — add a wallet to track\n/untrack <address> — stop tracking a wallet\n/wallets — list your tracked wallets\n/plan — your current plan\n/pricing — subscription plans\n/payment — payment wallet"
       );
       return res.status(200).json({ ok: true });
     }
@@ -341,6 +345,16 @@ module.exports = async function handler(req, res) {
     if (fromUser && !command) {
       const telegramUserId = String(fromUser.id);
       const userState = await getUserState(telegramUserId);
+
+      if (userState && userState.state === "awaiting_wallet_address") {
+        if (!isValidSolanaAddress(text)) {
+          await sendTelegramMessage(chatId, "That doesn't look like a valid Solana address. Please send your wallet address.");
+          return res.status(200).json({ ok: true });
+        }
+        await setUserState(telegramUserId, "awaiting_wallet_name", { wallet_address: text, chat_id: String(chatId) });
+        await sendTelegramMessage(chatId, "Wallet found: " + shortenAddress(text) + "\n\nWhat would you like to name this wallet?");
+        return res.status(200).json({ ok: true });
+      }
 
       if (userState && userState.state === "awaiting_wallet_name") {
         const walletAddress = userState.data && userState.data.wallet_address;
