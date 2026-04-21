@@ -158,7 +158,7 @@ async function handleTrack(chatId, fromUser, text) {
   const walletAddress = args[0];
   const label = args.slice(1).join(" ") || null;
   if (!walletAddress) {
-    await sendTelegramMessage(chatId, "Usage: /track <wallet_address> [label]\nExample: /track ABC123 my wallet");
+    await sendTelegramMessage(chatId, "Usage: /track <wallet_address> [label]\nExample: /track ABC123...XYZ my wallet");
     return;
   }
   if (!isValidSolanaAddress(walletAddress)) {
@@ -179,7 +179,7 @@ async function handleTrack(chatId, fromUser, text) {
   }
   await addTrackedWallet(telegramUserId, chatId, walletAddress, label);
   await registerWalletWithHelius(walletAddress);
-  await sendTelegramMessage(chatId, "Tracking " + shortenAddress(walletAddress) + (label ? ' ("' + label + '")' : "") + ". Alerts will be sent when this wallet has activity.");
+  await sendTelegramMessage(chatId, "Tracking started for " + shortenAddress(walletAddress) + (label ? ' ("' + label + '")' : "") + ".\n\nYou will receive alerts when this wallet has activity.");
 }
 
 async function handleUntrack(chatId, fromUser, text) {
@@ -205,7 +205,7 @@ async function handleWallets(chatId, fromUser) {
     await sendTelegramMessage(chatId, "No wallets tracked yet.\n\nUse /track <wallet_address> to start."); return;
   }
   const limit = userPlan ? userPlan.wallet_limit : FREE_WALLET_LIMIT;
-  const lines = ["Tracked Wallets (" + wallets.length + "/" + limit + "):"];
+  const lines = ["Your Tracked Wallets (" + wallets.length + "/" + limit + "):"];
   wallets.forEach((w, i) => {
     lines.push((i + 1) + ". " + shortenAddress(w.wallet_address) + (w.label ? ' — "' + w.label + '"' : ""));
   });
@@ -231,19 +231,19 @@ module.exports = async function handler(req, res) {
   const command = getCommand(text);
   const textLower = text.toLowerCase();
 
-  console.log("Incoming message", { chatId, command, text });
+  console.log("Incoming message", { chatId, command });
 
   try {
     if (!chatId) return res.status(200).json({ ok: true, message: "Missing chatId" });
 
     if (!supabase) {
-      await sendTelegramMessage(chatId, "Database not configured.");
+      await sendTelegramMessage(chatId, "Database not configured. Contact support.");
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/start") {
       if (fromUser) await ensureUserAndFreePlan(fromUser);
-      await sendTelegramMessage(chatId, "Hello! I'm CipherMind.\n\nCommands:\n/plan — your plan\n/pricing — plans\n/payment — payment wallet\n/track <address> — track a wallet\n/untrack <address> — stop tracking\n/wallets — list tracked wallets");
+      await sendTelegramMessage(chatId, "Hello! I'm CipherMind.\n\nCommands:\n/plan — your current plan\n/pricing — subscription plans\n/payment — payment wallet\n/track <address> — track a wallet\n/untrack <address> — stop tracking\n/wallets — list tracked wallets");
       return res.status(200).json({ ok: true });
     }
 
@@ -253,7 +253,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (command === "/payment") {
-      await sendTelegramMessage(chatId, "Payment Wallet:\n" + PAYMENT_WALLET + "\n\nSend SOL only.");
+      await sendTelegramMessage(chatId, "Payment Wallet:\n" + PAYMENT_WALLET + "\n\nSend SOL only to this wallet for monthly access.");
       return res.status(200).json({ ok: true });
     }
 
@@ -261,7 +261,7 @@ module.exports = async function handler(req, res) {
       if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify user."); return res.status(200).json({ ok: true }); }
       const userPlan = await getUserPlan(fromUser.id);
       if (!userPlan) { await sendTelegramMessage(chatId, "No plan found. Send /start first."); return res.status(200).json({ ok: true }); }
-      await sendTelegramMessage(chatId, "Your Plan:\nPlan: " + userPlan.plan_name + "\nWallet limit: " + userPlan.wallet_limit + "\nStatus: " + userPlan.status + "\nUpdated: " + formatDate(userPlan.updated_at));
+      await sendTelegramMessage(chatId, "Your Current Plan:\nPlan: " + userPlan.plan_name + "\nWallet limit: " + userPlan.wallet_limit + "\nStatus: " + userPlan.status + "\nUpdated: " + formatDate(userPlan.updated_at));
       return res.status(200).json({ ok: true });
     }
 
@@ -285,39 +285,19 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey) {
-      await sendTelegramMessage(chatId, "AI replies unavailable. Commands still work.");
+    if (isValidSolanaAddress(text)) {
+      await sendTelegramMessage(chatId, "To track this wallet use:\n/track " + text);
       return res.status(200).json({ ok: true });
     }
 
-    const aiRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + groqKey },
-      body: JSON.stringify({
-        model: "llama-3.1-8b-instant",
-        messages: [
-          { role: "system", content: "You are CipherMind, a concise Telegram assistant for Solana wallet tracking. Give short, direct answers only. Do not give long explanations unless asked." },
-          { role: "user", content: text },
-        ],
-      }),
-    });
-
-    const aiData = await aiRes.json().catch(() => ({}));
-    if (!aiRes.ok) {
-      await sendTelegramMessage(chatId, "AI temporarily unavailable. Try again in a minute.");
-      return res.status(200).json({ ok: true });
-    }
-
-    const reply = aiData && aiData.choices && aiData.choices[0] && aiData.choices[0].message && aiData.choices[0].message.content
-      ? aiData.choices[0].message.content : "No response.";
-
-    await sendTelegramMessage(chatId, reply);
+    await sendTelegramMessage(chatId, "Unknown command. Use /start to see all available commands.");
     return res.status(200).json({ ok: true });
 
   } catch (error) {
     console.error("Webhook handler error", error);
-    try { if (chatId) await sendTelegramMessage(chatId, "CipherMind is temporarily unavailable. Try again."); } catch (e) { console.error(e); }
+    try {
+      if (chatId) await sendTelegramMessage(chatId, "CipherMind is temporarily unavailable. Try again.");
+    } catch (e) { console.error(e); }
     return res.status(200).json({ ok: true, errorHandled: true });
   }
 };
