@@ -55,6 +55,35 @@ async function sendTelegramMessage(chatId, text) {
   }
 }
 
+async function getUserState(telegramUserId) {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("user_state")
+    .select("state, data")
+    .eq("telegram_user_id", String(telegramUserId))
+    .maybeSingle();
+  if (error) { console.error("getUserState error", error); return null; }
+  return data;
+}
+
+async function setUserState(telegramUserId, state, data) {
+  if (!supabase) return;
+  const { error } = await supabase.from("user_state").upsert(
+    { telegram_user_id: String(telegramUserId), state: state, data: data, updated_at: new Date().toISOString() },
+    { onConflict: "telegram_user_id" }
+  );
+  if (error) console.error("setUserState error", error);
+}
+
+async function clearUserState(telegramUserId) {
+  if (!supabase) return;
+  const { error } = await supabase
+    .from("user_state")
+    .delete()
+    .eq("telegram_user_id", String(telegramUserId));
+  if (error) console.error("clearUserState error", error);
+}
+
 async function ensureUserAndFreePlan(telegramUser) {
   if (!supabase) throw new Error("Supabase client not initialized");
   const telegramUserId = String(telegramUser.id);
@@ -152,20 +181,7 @@ async function unregisterWalletFromHelius(walletAddress) {
   });
 }
 
-async function handleTrack(chatId, fromUser, text) {
-  if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify your account."); return; }
-  const args = getArgs(text);
-  const walletAddress = args[0];
-  const label = args.slice(1).join(" ") || null;
-  if (!walletAddress) {
-    await sendTelegramMessage(chatId, "Usage: /track <wallet_address> [label]\nExample: /track ABC123...XYZ my wallet");
-    return;
-  }
-  if (!isValidSolanaAddress(walletAddress)) {
-    await sendTelegramMessage(chatId, "Invalid Solana address. Please check and try again.");
-    return;
-  }
-  const telegramUserId = String(fromUser.id);
+async function completeWalletTracking(chatId, telegramUserId, walletAddress, label) {
   const userPlan = await getUserPlan(telegramUserId);
   if (!userPlan) { await sendTelegramMessage(chatId, "No plan found. Send /start first."); return; }
   if (userPlan.status !== "active") { await sendTelegramMessage(chatId, "Your plan is not active. Contact support."); return; }
@@ -175,21 +191,46 @@ async function handleTrack(chatId, fromUser, text) {
     return;
   }
   if (existing.some((w) => w.wallet_address === walletAddress)) {
-    await sendTelegramMessage(chatId, "Already tracking " + shortenAddress(walletAddress) + "."); return;
+    await sendTelegramMessage(chatId, "Already tracking " + shortenAddress(walletAddress) + ".");
+    return;
   }
   await addTrackedWallet(telegramUserId, chatId, walletAddress, label);
   await registerWalletWithHelius(walletAddress);
-  await sendTelegramMessage(chatId, "Tracking started for " + shortenAddress(walletAddress) + (label ? ' ("' + label + '")' : "") + ".\n\nYou will receive alerts when this wallet has activity.");
+  await sendTelegramMessage(
+    chatId,
+    "Tracking started!\n\nWallet: " + shortenAddress(walletAddress) + '\nName: "' + label + '"\n\nYou will receive alerts when this wallet has activity.'
+  );
+}
+
+async function handleAdd(chatId, fromUser, text) {
+  if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify your account."); return; }
+  const args = getArgs(text);
+  const walletAddress = args[0];
+  if (!walletAddress) {
+    await sendTelegramMessage(chatId, "Please provide a wallet address.\n\nUsage: /add <wallet_address>");
+    return;
+  }
+  if (!isValidSolanaAddress(walletAddress)) {
+    await sendTelegramMessage(chatId, "Invalid Solana address. Please check and try again.");
+    return;
+  }
+  const telegramUserId = String(fromUser.id);
+  await setUserState(telegramUserId, "awaiting_wallet_name", { wallet_address: walletAddress, chat_id: String(chatId) });
+  await sendTelegramMessage(chatId, "Wallet found: " + shortenAddress(walletAddress) + "\n\nWhat would you like to name this wallet?");
 }
 
 async function handleUntrack(chatId, fromUser, text) {
   if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify your account."); return; }
   const walletAddress = getArgs(text)[0];
-  if (!walletAddress) { await sendTelegramMessage(chatId, "Usage: /untrack <wallet_address>\nUse /wallets to see your list."); return; }
+  if (!walletAddress) {
+    await sendTelegramMessage(chatId, "Usage: /untrack <wallet_address>\n\nUse /wallets to see your list.");
+    return;
+  }
   const telegramUserId = String(fromUser.id);
   const existing = await getTrackedWallets(telegramUserId);
   if (!existing.find((w) => w.wallet_address === walletAddress)) {
-    await sendTelegramMessage(chatId, shortenAddress(walletAddress) + " is not in your tracked list."); return;
+    await sendTelegramMessage(chatId, shortenAddress(walletAddress) + " is not in your tracked list.");
+    return;
   }
   await removeTrackedWallet(telegramUserId, walletAddress);
   await unregisterWalletFromHelius(walletAddress);
@@ -202,7 +243,8 @@ async function handleWallets(chatId, fromUser) {
   const wallets = await getTrackedWallets(telegramUserId);
   const userPlan = await getUserPlan(telegramUserId);
   if (wallets.length === 0) {
-    await sendTelegramMessage(chatId, "No wallets tracked yet.\n\nUse /track <wallet_address> to start."); return;
+    await sendTelegramMessage(chatId, "No wallets tracked yet.\n\nUse /add <wallet_address> to start.");
+    return;
   }
   const limit = userPlan ? userPlan.wallet_limit : FREE_WALLET_LIMIT;
   const lines = ["Your Tracked Wallets (" + wallets.length + "/" + limit + "):"];
@@ -243,12 +285,18 @@ module.exports = async function handler(req, res) {
 
     if (command === "/start") {
       if (fromUser) await ensureUserAndFreePlan(fromUser);
-      await sendTelegramMessage(chatId, "Hello! I'm CipherMind.\n\nCommands:\n/plan — your current plan\n/pricing — subscription plans\n/payment — payment wallet\n/track <address> — track a wallet\n/untrack <address> — stop tracking\n/wallets — list tracked wallets");
+      await sendTelegramMessage(
+        chatId,
+        "Hello! I'm CipherMind.\n\nCommands:\n/add <address> — add a wallet to track\n/untrack <address> — stop tracking a wallet\n/wallets — list your tracked wallets\n/plan — your current plan\n/pricing — subscription plans\n/payment — payment wallet"
+      );
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/pricing") {
-      await sendTelegramMessage(chatId, "Subscription Plans:\n\nFree: " + FREE_WALLET_LIMIT + " wallets\n50 wallets: " + PLANS[50].monthly.toFixed(2) + " SOL/month\n100 wallets: " + PLANS[100].monthly.toFixed(2) + " SOL/month\n200 wallets: " + PLANS[200].monthly.toFixed(2) + " SOL/month\n\nUse /payment to pay.");
+      await sendTelegramMessage(
+        chatId,
+        "Subscription Plans:\n\nFree: " + FREE_WALLET_LIMIT + " wallets\n50 wallets: " + PLANS[50].monthly.toFixed(2) + " SOL/month\n100 wallets: " + PLANS[100].monthly.toFixed(2) + " SOL/month\n200 wallets: " + PLANS[200].monthly.toFixed(2) + " SOL/month\n\nUse /payment to pay."
+      );
       return res.status(200).json({ ok: true });
     }
 
@@ -261,7 +309,10 @@ module.exports = async function handler(req, res) {
       if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify user."); return res.status(200).json({ ok: true }); }
       const userPlan = await getUserPlan(fromUser.id);
       if (!userPlan) { await sendTelegramMessage(chatId, "No plan found. Send /start first."); return res.status(200).json({ ok: true }); }
-      await sendTelegramMessage(chatId, "Your Current Plan:\nPlan: " + userPlan.plan_name + "\nWallet limit: " + userPlan.wallet_limit + "\nStatus: " + userPlan.status + "\nUpdated: " + formatDate(userPlan.updated_at));
+      await sendTelegramMessage(
+        chatId,
+        "Your Current Plan:\nPlan: " + userPlan.plan_name + "\nWallet limit: " + userPlan.wallet_limit + "\nStatus: " + userPlan.status + "\nUpdated: " + formatDate(userPlan.updated_at)
+      );
       return res.status(200).json({ ok: true });
     }
 
@@ -270,12 +321,14 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    if (command === "/track" || textLower.startsWith("/track ") || textLower === "/track") {
-      await handleTrack(chatId, fromUser, text);
+    if (command === "/add" || textLower.startsWith("/add ") || textLower === "/add") {
+      if (fromUser) await clearUserState(String(fromUser.id));
+      await handleAdd(chatId, fromUser, text);
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/untrack" || textLower.startsWith("/untrack ") || textLower === "/untrack") {
+      if (fromUser) await clearUserState(String(fromUser.id));
       await handleUntrack(chatId, fromUser, text);
       return res.status(200).json({ ok: true });
     }
@@ -285,8 +338,26 @@ module.exports = async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    if (fromUser && !command) {
+      const telegramUserId = String(fromUser.id);
+      const userState = await getUserState(telegramUserId);
+
+      if (userState && userState.state === "awaiting_wallet_name") {
+        const walletAddress = userState.data && userState.data.wallet_address;
+        const label = text;
+        if (!walletAddress) {
+          await clearUserState(telegramUserId);
+          await sendTelegramMessage(chatId, "Something went wrong. Please try /add again.");
+          return res.status(200).json({ ok: true });
+        }
+        await clearUserState(telegramUserId);
+        await completeWalletTracking(chatId, telegramUserId, walletAddress, label);
+        return res.status(200).json({ ok: true });
+      }
+    }
+
     if (isValidSolanaAddress(text)) {
-      await sendTelegramMessage(chatId, "To track this wallet use:\n/track " + text);
+      await sendTelegramMessage(chatId, "To track this wallet use:\n/add " + text);
       return res.status(200).json({ ok: true });
     }
 
