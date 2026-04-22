@@ -1,14 +1,14 @@
 /**
  * cron/auto-verify.js
  *
- * AUTO PAYMENT VERIFICATION  â€” Future Feature
- * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ * AUTO PAYMENT VERIFICATION   Future Feature
+ * 
  * Instead of asking users to paste a transaction hash via /verify,
  * this cron job polls the Solana blockchain for inbound payments to
  * PAYMENT_WALLET and automatically activates the matching user's plan.
  *
  * Flow:
- *   1. User selects a plan with /plan â†’ plan key stored in users.selected_plan
+ *   1. User selects a plan with /plan  plan key stored in users.selected_plan
  *   2. User sends SOL to PAYMENT_WALLET (no /verify needed)
  *   3. This cron runs every N minutes, fetches recent transactions to PAYMENT_WALLET
  *   4. For each unprocessed payment it finds a user whose:
@@ -16,7 +16,7 @@
  *        b. payment arrived after the plan was selected (pending_intent.created_at)
  *   5. Plan is activated automatically, user gets a Telegram confirmation
  *
- * âš ï¸  KNOWN LIMITATIONS TO ADDRESS BEFORE GOING LIVE:
+ *   KNOWN LIMITATIONS TO ADDRESS BEFORE GOING LIVE:
  *   - Two users selecting the same plan at the same time and sending the same
  *     SOL amount creates an ambiguous match. Mitigate by assigning a unique
  *     memo/reference field per payment intent (see TODO below).
@@ -31,29 +31,29 @@
  * Required env vars:
  *   SUPABASEURL, SUPABASESERVICEROLEKEY
  *   TELEGRAM_BOT_TOKEN
- *   PAYMENT_WALLET             â€” your SOL receiving address
- *   HELIUS_API_KEY             â€” for RPC calls (higher rate limits than public)
- *   CRON_SECRET                â€” protects the endpoint
- *   AUTO_VERIFY_LOOKBACK_SECS  â€” how many seconds back to scan (default: 360)
+ *   PAYMENT_WALLET              your SOL receiving address
+ *   HELIUS_API_KEY              for RPC calls (higher rate limits than public)
+ *   CRON_SECRET                 protects the endpoint
+ *   AUTO_VERIFY_LOOKBACK_SECS   how many seconds back to scan (default: 360)
  */
 
 const { createClient } = require("@supabase/supabase-js");
 
-// â”€â”€â”€ Config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Config 
 
 const PAYMENT_WALLET   = process.env.PAYMENT_WALLET || "8Lj1BrUCmbRY1p4PBNsdYyUxmRYKrBj5FZgff3ttjz8j";
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
 const PLANS = {
-  monthly_50:  { label: "50 Wallets â€” Monthly",  sol: 0.30, wallet_limit: 50,  billing: "monthly" },
-  monthly_100: { label: "100 Wallets â€” Monthly", sol: 0.40, wallet_limit: 100, billing: "monthly" },
-  monthly_200: { label: "200 Wallets â€” Monthly", sol: 0.50, wallet_limit: 200, billing: "monthly" },
-  yearly_50:   { label: "50 Wallets â€” Yearly",   sol: 1.20, wallet_limit: 50,  billing: "yearly"  },
-  yearly_100:  { label: "100 Wallets â€” Yearly",  sol: 1.60, wallet_limit: 100, billing: "yearly"  },
-  yearly_200:  { label: "200 Wallets â€” Yearly",  sol: 2.00, wallet_limit: 200, billing: "yearly"  },
+  monthly_50:  { label: "50 Wallets  Monthly",  sol: 0.30, wallet_limit: 50,  billing: "monthly" },
+  monthly_100: { label: "100 Wallets  Monthly", sol: 0.40, wallet_limit: 100, billing: "monthly" },
+  monthly_200: { label: "200 Wallets  Monthly", sol: 0.50, wallet_limit: 200, billing: "monthly" },
+  yearly_50:   { label: "50 Wallets  Yearly",   sol: 1.20, wallet_limit: 50,  billing: "yearly"  },
+  yearly_100:  { label: "100 Wallets  Yearly",  sol: 1.60, wallet_limit: 100, billing: "yearly"  },
+  yearly_200:  { label: "200 Wallets  Yearly",  sol: 2.00, wallet_limit: 200, billing: "yearly"  },
 };
 
-// â”€â”€â”€ Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Supabase 
 
 const supabase =
   process.env.SUPABASEURL && process.env.SUPABASESERVICEROLEKEY
@@ -62,7 +62,7 @@ const supabase =
       })
     : null;
 
-// â”€â”€â”€ Telegram â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Telegram 
 
 async function sendTelegramMessage(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -89,7 +89,7 @@ async function getChatIdForUser(telegramUserId) {
   return data?.telegram_chat_id || telegramUserId;
 }
 
-// â”€â”€â”€ Solana RPC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Solana RPC 
 
 function rpcEndpoint() {
   const apiKey = process.env.HELIUS_API_KEY;
@@ -141,7 +141,7 @@ async function getTransaction(signature) {
   return json?.result || null;
 }
 
-// â”€â”€â”€ Payment Parsing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Payment Parsing 
 
 /**
  * Extracts the SOL amount received by PAYMENT_WALLET in a transaction.
@@ -166,7 +166,7 @@ function extractPaymentToWallet(tx) {
   return { lamports: totalLamports, sol: totalLamports / LAMPORTS_PER_SOL, sender };
 }
 
-// â”€â”€â”€ Pending Payment Intent Matching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Pending Payment Intent Matching 
 
 /**
  * TODO (before going live): Add a `pending_intents` table:
@@ -192,9 +192,9 @@ function extractPaymentToWallet(tx) {
 
 /**
  * Returns users who have selected a plan and are awaiting payment.
- * Reads from users.selected_plan â€” reuses existing schema, no new tables needed for Phase 1.
+ * Reads from users.selected_plan  reuses existing schema, no new tables needed for Phase 1.
  *
- * @param {number} lookbackSecs  â€” only consider intents created within this window
+ * @param {number} lookbackSecs   only consider intents created within this window
  */
 async function getPendingPaymentIntents(lookbackSecs) {
   const cutoff = new Date(Date.now() - lookbackSecs * 1000).toISOString();
@@ -217,7 +217,7 @@ async function getPendingPaymentIntents(lookbackSecs) {
   return (data || []).filter((row) => PLANS[row.selected_plan]);
 }
 
-// â”€â”€â”€ Plan Activation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Plan Activation 
 
 async function activatePlan(telegramUserId, planKey, txSignature, receivedSol) {
   const plan = PLANS[planKey];
@@ -257,7 +257,7 @@ async function activatePlan(telegramUserId, planKey, txSignature, receivedSol) {
   await sendTelegramMessage(
     chatId,
     [
-      "âœ… <b>Payment Confirmed â€” Auto Verified</b>",
+      " <b>Payment Confirmed  Auto Verified</b>",
       "",
       "Plan: <b>" + plan.label + "</b>",
       "Wallet limit: " + plan.wallet_limit,
@@ -270,7 +270,7 @@ async function activatePlan(telegramUserId, planKey, txSignature, receivedSol) {
   console.log("Plan activated", { telegramUserId, planKey, txSignature });
 }
 
-// â”€â”€â”€ Main Job â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Main Job 
 
 async function runAutoVerify() {
   if (!supabase) throw new Error("Supabase not initialised");
@@ -346,7 +346,7 @@ async function runAutoVerify() {
       continue;
     }
 
-    // Prevent double-activation â€” check again right before writing
+    // Prevent double-activation  check again right before writing
     const { data: alreadyActivated } = await supabase
       .from("pending_payments")
       .select("id")
@@ -378,9 +378,9 @@ async function runAutoVerify() {
   return { matched, checked: newSigs.length };
 }
 
-// â”€â”€â”€ HTTP Handler (Vercel API route) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  HTTP Handler (Vercel API route) 
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
   }
@@ -407,10 +407,12 @@ module.exports = async function handler(req, res) {
   }
 };
 
-// â”€â”€â”€ Direct execution â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Direct execution 
 
 if (require.main === module) {
   runAutoVerify()
     .then((result) => { console.log("Done", result); process.exit(0); })
     .catch((err)   => { console.error(err); process.exit(1); });
-              }
+}
+
+module.exports = handler;
