@@ -12,7 +12,7 @@
 
 const { createClient } = require("@supabase/supabase-js");
 
-// â”€â”€â”€ Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Supabase 
 
 const supabase =
   process.env.SUPABASEURL && process.env.SUPABASESERVICEROLEKEY
@@ -21,7 +21,7 @@ const supabase =
       })
     : null;
 
-// â”€â”€â”€ Telegram â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Telegram 
 
 async function sendTelegramMessage(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -38,7 +38,7 @@ async function sendTelegramMessage(chatId, text) {
   }).catch((e) => console.error("sendTelegramMessage error", e));
 }
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Helpers 
 
 function formatDate(date) {
   return new Date(date).toLocaleString("en-US", {
@@ -48,12 +48,12 @@ function formatDate(date) {
 }
 
 const PLAN_LABELS = {
-  monthly_50:  "50 Wallets â€” Monthly",
-  monthly_100: "100 Wallets â€” Monthly",
-  monthly_200: "200 Wallets â€” Monthly",
-  yearly_50:   "50 Wallets â€” Yearly",
-  yearly_100:  "100 Wallets â€” Yearly",
-  yearly_200:  "200 Wallets â€” Yearly",
+  monthly_50:  "50 Wallets  Monthly",
+  monthly_100: "100 Wallets  Monthly",
+  monthly_200: "200 Wallets  Monthly",
+  yearly_50:   "50 Wallets  Yearly",
+  yearly_100:  "100 Wallets  Yearly",
+  yearly_200:  "200 Wallets  Yearly",
 };
 
 /**
@@ -67,7 +67,7 @@ async function getExpiringPlans(WARNING_DAYS = 3) {
   const now     = new Date();
   const horizon = new Date(now.getTime() + WARNING_DAYS * 24 * 60 * 60 * 1000);
 
-  // Join plans â†’ users to get telegram_chat_id (stored in tracked_wallets)
+  // Join plans  users to get telegram_chat_id (stored in tracked_wallets)
   // We use a direct supabase query; adapt column names to your schema.
   const { data, error } = await supabase
     .from("plans")
@@ -118,7 +118,7 @@ async function markWarned(telegramUserId) {
   if (error) console.error("markWarned error", error);
 }
 
-// â”€â”€â”€ Main Job â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Main Job 
 
 async function runExpiryWarnings() {
   if (!supabase) throw new Error("Supabase not initialised");
@@ -145,10 +145,10 @@ async function runExpiryWarnings() {
       );
 
       const message = [
-        "âš ï¸ <b>Plan Expiring Soon</b>",
+        " <b>Plan Expiring Soon</b>",
         "",
         "Your <b>" + planLabel + "</b> plan expires in <b>" + daysLeft + " day" + (daysLeft === 1 ? "" : "s") + "</b>.",
-        "ðŸ“… Expiry: " + expiryStr,
+        " Expiry: " + expiryStr,
         "",
         "To keep tracking your " + plan.wallet_limit + " wallet" + (plan.wallet_limit === 1 ? "" : "s") + " without interruption, renew before it expires.",
         "",
@@ -169,9 +169,9 @@ async function runExpiryWarnings() {
   return { sent, failed, total: plans.length };
 }
 
-// â”€â”€â”€ HTTP Handler (Vercel API route) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  HTTP Handler (Vercel API route) 
 
-module.exports = async function handler(req, res) {
+async function handler(req, res) {
   // Allow both GET (cron scheduler ping) and POST
   if (req.method !== "GET" && req.method !== "POST") {
     return res.status(405).json({ ok: false, error: "Method not allowed" });
@@ -202,10 +202,12 @@ module.exports = async function handler(req, res) {
   }
 };
 
-// â”€â”€â”€ Direct execution (node cron/expiry-warning.js) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Direct execution (node cron/expiry-warning.js) 
 
 if (require.main === module) {
   runExpiryWarnings()
     .then((result) => { console.log("Done", result); process.exit(0); })
     .catch((err)   => { console.error(err); process.exit(1); });
 }
+
+module.exports = handler;
