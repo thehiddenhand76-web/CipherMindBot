@@ -357,7 +357,7 @@ module.exports = async function handler(req, res) {
         "CipherMind Commands:\n\n" +
         "/start — Set up your account\n\n" +
         "/add <wallet_address>\nStep 1: Enter wallet address\nStep 2: Enter wallet name\nTracking begins immediately\n\n" +
-        "/untrack <wallet_address> — Pause or resume tracking on a wallet\n\n" +
+        "/untrack — Pause or resume a wallet\not shows numbered list\nStep 2: Enter number to toggle pause/resume\n\n" +
         "/remove — Permanently remove a wallet\nStep 1: Bot shows numbered list\nStep 2: Enter number to remove. Bot confirms and shows updated list\n\n" +
         "/wallets — View all your tracked wallets with address and name\n\n" +
         "/plan — View subscription plans and subscribe\n\n" +
@@ -490,26 +490,17 @@ module.exports = async function handler(req, res) {
 
     if (command === "/untrack") {
       if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify your account."); return res.status(200).json({ ok: true }); }
-      const walletAddress = getArgs(text)[0];
-      if (!walletAddress) {
-        await sendTelegramMessage(chatId, "Usage: /untrack <wallet_address>\n\nUse /wallets to see your list.");
-        return res.status(200).json({ ok: true });
-      }
       const telegramUserId = String(fromUser.id);
       const allWallets = await getTrackedWallets(telegramUserId);
-      const wallet = allWallets.find(function(w) { return w.wallet_address === walletAddress; });
-      if (!wallet) {
-        await sendTelegramMessage(chatId, shortenAddress(walletAddress) + " is not in your list.");
+      if (!allWallets.length) {
+        await sendTelegramMessage(chatId, "You have no wallets to pause or resume.");
         return res.status(200).json({ ok: true });
       }
-      const newState = !wallet.active;
-      await toggleWalletTracking(telegramUserId, walletAddress, newState);
-      if (!newState) await unregisterWalletFromHelius(walletAddress);
-      if (newState) await registerWalletWithHelius(walletAddress);
-      await sendTelegramMessage(
-        chatId,
-        "Tracking " + (newState ? "resumed" : "paused") + " for " + shortenAddress(walletAddress) + (wallet.label ? ' ("' + wallet.label + '")' : "") + "."
-      );
+      const formatted = allWallets.map(function(w, i) {
+        return (i + 1) + ". " + w.wallet_address + (w.label ? ' — "' + w.label + '"' : "") + (w.active ? " [active]" : " [paused]");
+      }).join("\n");
+      await setUserState(telegramUserId, "awaiting_untrack_selection", { wallets: allWallets, chat_id: String(chatId) });
+      await sendTelegramMessage(chatId, "Your Wallets:\n\n" + formatted + "\n\nEnter the number to toggle pause/resume.\nOr send /cancel to stop.");
       return res.status(200).json({ ok: true });
     }
 
@@ -544,7 +535,7 @@ module.exports = async function handler(req, res) {
       allWallets.forEach(function(w, i) {
         lines.push((i + 1) + ". " + w.wallet_address + (w.label ? ' — "' + w.label + '"' : "") + (w.active ? "" : " [paused]"));
       });
-      lines.push("\n/untrack <address> — pause or resume\n/remove — permanently delete");
+      lines.push("\n/untrack — pause or resume\n/remove — permanently delete");
       await sendTelegramMessage(chatId, lines.join("\n"));
       return res.status(200).json({ ok: true });
     }
@@ -579,6 +570,31 @@ module.exports = async function handler(req, res) {
         }
         await clearUserState(telegramUserId);
         await completeWalletTracking(chatId, telegramUserId, walletAddress, text);
+        return res.status(200).json({ ok: true });
+      }
+
+      if (userState && userState.state === "awaiting_untrack_selection") {
+        const wallets = userState.data && userState.data.wallets;
+        const selection = parseInt(text, 10);
+        if (!wallets || isNaN(selection) || selection < 1 || selection > wallets.length) {
+          await sendTelegramMessage(chatId, "Please enter a valid number from the list, or send /cancel to stop.");
+          return res.status(200).json({ ok: true });
+        }
+        const walletToToggle = wallets[selection - 1];
+        const newState = !walletToToggle.active;
+        await clearUserState(telegramUserId);
+        await toggleWalletTracking(telegramUserId, walletToToggle.wallet_address, newState);
+        if (newState) {
+          await registerWalletWithHelius(walletToToggle.wallet_address);
+        } else {
+          await unregisterWalletFromHelius(walletToToggle.wallet_address);
+        }
+        const updated = await getTrackedWallets(telegramUserId);
+        const lines = ["Tracking " + (newState ? "resumed" : "paused") + " for " + shortenAddress(walletToToggle.wallet_address) + (walletToToggle.label ? ' ("' + walletToToggle.label + '")' : "") + ".\n\nUpdated list:\n"];
+        updated.forEach(function(w, i) {
+          lines.push((i + 1) + ". " + w.wallet_address + (w.label ? ' — "' + w.label + '"' : "") + (w.active ? " [active]" : " [paused]"));
+        });
+        await sendTelegramMessage(chatId, lines.join("\n"));
         return res.status(200).json({ ok: true });
       }
 
