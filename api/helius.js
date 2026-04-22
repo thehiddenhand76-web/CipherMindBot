@@ -1,12 +1,8 @@
 const { createClient } = require("@supabase/supabase-js");
 
-//  Constants 
-
 const HELIUS_API_BASE = "https://api.helius.xyz/v0";
-const SOL_MINT        = "So11111111111111111111111111111111111111112";
-const LAMPORTS_PER_SOL = 1_000_000_000;
-
-//  Supabase 
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+const LAMPORTS_PER_SOL = 1000000000;
 
 const supabase =
   process.env.SUPABASEURL && process.env.SUPABASESERVICEROLEKEY
@@ -15,24 +11,24 @@ const supabase =
       })
     : null;
 
-//  Helpers 
-
-function shortenAddress(addr, len = 6) {
+function shortenAddress(addr, len) {
+  len = len || 6;
   if (!addr || addr.length <= len * 2 + 3) return addr;
   return addr.slice(0, len) + "..." + addr.slice(-len);
 }
 
-function formatAmount(amount, decimals = 9) {
-  const value = amount / Math.pow(10, decimals);
-  if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + "M";
-  if (value >= 1_000)     return (value / 1_000).toFixed(2) + "K";
+function formatAmount(amount, decimals) {
+  decimals = decimals || 9;
+  var value = amount / Math.pow(10, decimals);
+  if (value >= 1000000) return (value / 1000000).toFixed(2) + "M";
+  if (value >= 1000) return (value / 1000).toFixed(2) + "K";
   return value.toFixed(value < 0.01 ? 6 : 4);
 }
 
 function formatUSD(value) {
   if (!value && value !== 0) return "";
-  if (value >= 1_000_000) return " ($" + (value / 1_000_000).toFixed(2) + "M)";
-  if (value >= 1_000)     return " ($" + (value / 1_000).toFixed(2) + "K)";
+  if (value >= 1000000) return " ($" + (value / 1000000).toFixed(2) + "M)";
+  if (value >= 1000) return " ($" + (value / 1000).toFixed(2) + "K)";
   return " ($" + value.toFixed(2) + ")";
 }
 
@@ -45,96 +41,79 @@ function dexLink(mint) {
 }
 
 function jupLink(inputMint, outputMint) {
-  return (
-    "https://jup.ag/swap/" + (inputMint || "SOL") + "-" + (outputMint || "SOL")
-  );
+  return "https://jup.ag/swap/" + (inputMint || "SOL") + "-" + (outputMint || "SOL");
 }
 
-//  Telegram Helpers 
-
 async function sendTelegramMessage(chatId, text) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  var token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
   await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
-      text,
+      text: text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
     }),
-  }).catch((e) => console.error("sendTelegramMessage error", e));
+  }).catch(function(e) { console.error("sendTelegramMessage error", e); });
 }
 
 async function sendTelegramMessageWithButtons(chatId, text, inlineKeyboard) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+  var token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
   await fetch("https://api.telegram.org/bot" + token + "/sendMessage", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       chat_id: chatId,
-      text,
+      text: text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
       reply_markup: { inline_keyboard: inlineKeyboard },
     }),
-  }).catch((e) => console.error("sendTelegramMessageWithButtons error", e));
+  }).catch(function(e) { console.error("sendTelegramMessageWithButtons error", e); });
 }
 
-//  Supabase Lookups 
-
-/**
- * Returns all active tracked-wallet rows for a given wallet address.
- * Multiple users may track the same wallet, so we return an array.
- */
 async function getActiveSubscribersForWallet(walletAddress) {
   if (!supabase) return [];
-  const { data, error } = await supabase
+  var result = await supabase
     .from("tracked_wallets")
     .select("telegram_user_id, telegram_chat_id, label")
     .eq("wallet_address", walletAddress)
     .eq("active", true);
-  if (error) {
-    console.error("getActiveSubscribersForWallet error", error);
+  if (result.error) {
+    console.error("getActiveSubscribersForWallet error", result.error);
     return [];
   }
-  return data || [];
+  return result.data || [];
 }
 
-//  Token Metadata (Helius DAS) 
-
-const tokenMetaCache = new Map();
+var tokenMetaCache = new Map();
 
 async function getTokenMeta(mint) {
   if (!mint || mint === SOL_MINT) return { symbol: "SOL", name: "Solana", decimals: 9 };
   if (tokenMetaCache.has(mint)) return tokenMetaCache.get(mint);
-
-  const apiKey = process.env.HELIUS_API_KEY;
+  var apiKey = process.env.HELIUS_API_KEY;
   if (!apiKey) return { symbol: shortenAddress(mint, 4), name: mint, decimals: 6 };
-
   try {
-    const res = await fetch(
-      "https://mainnet.helius-rpc.com/?api-key=" + apiKey,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "get-asset",
-          method: "getAsset",
-          params: { id: mint },
-        }),
-      }
-    );
-    const json = await res.json();
-    const result = json?.result;
-    const meta = {
-      symbol:   result?.content?.metadata?.symbol   || shortenAddress(mint, 4),
-      name:     result?.content?.metadata?.name     || mint,
-      decimals: result?.token_info?.decimals         ?? 6,
-      price:    result?.token_info?.price_info?.price_per_token ?? null,
+    var res = await fetch("https://mainnet.helius-rpc.com/?api-key=" + apiKey, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "get-asset",
+        method: "getAsset",
+        params: { id: mint },
+      }),
+    });
+    var json = await res.json();
+    var r = json && json.result;
+    var meta = {
+      symbol: (r && r.content && r.content.metadata && r.content.metadata.symbol) || shortenAddress(mint, 4),
+      name: (r && r.content && r.content.metadata && r.content.metadata.name) || mint,
+      decimals: (r && r.token_info && r.token_info.decimals != null) ? r.token_info.decimals : 6,
+      price: (r && r.token_info && r.token_info.price_info && r.token_info.price_info.price_per_token) || null,
     };
     tokenMetaCache.set(mint, meta);
     return meta;
@@ -144,156 +123,115 @@ async function getTokenMeta(mint) {
   }
 }
 
-//  Alert Formatters 
-
-/**
- * Formats a TRANSFER alert.
- *
- * Helius "tokenTransfers" / "nativeTransfers" arrays are used.
- * We resolve who is sender/receiver relative to the tracked wallet.
- */
 async function formatTransfer(tx, trackedWallet, label) {
-  const sig   = tx.signature;
-  const ts    = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
-  const fee   = tx.fee ? (tx.fee / LAMPORTS_PER_SOL).toFixed(6) : "?";
+  var sig = tx.signature;
+  var ts = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
+  var fee = tx.fee ? (tx.fee / LAMPORTS_PER_SOL).toFixed(6) : "?";
+  var legs = [];
 
-  // --- Collect all transfer legs ---
-  const legs = [];
-
-  // Native SOL transfers
-  for (const nt of tx.nativeTransfers || []) {
+  var nativeTransfers = tx.nativeTransfers || [];
+  for (var i = 0; i < nativeTransfers.length; i++) {
+    var nt = nativeTransfers[i];
     if (!nt.amount || nt.amount === 0) continue;
-    legs.push({
-      mint:     SOL_MINT,
-      symbol:   "SOL",
-      decimals: 9,
-      amount:   nt.amount,
-      from:     nt.fromUserAccount,
-      to:       nt.toUserAccount,
-    });
+    legs.push({ mint: SOL_MINT, symbol: "SOL", decimals: 9, amount: nt.amount, from: nt.fromUserAccount, to: nt.toUserAccount });
   }
 
-  // SPL token transfers
-  for (const tt of tx.tokenTransfers || []) {
+  var tokenTransfers = tx.tokenTransfers || [];
+  for (var j = 0; j < tokenTransfers.length; j++) {
+    var tt = tokenTransfers[j];
     if (!tt.tokenAmount || tt.tokenAmount === 0) continue;
-    const meta = await getTokenMeta(tt.mint);
+    var meta = await getTokenMeta(tt.mint);
     legs.push({
-      mint:     tt.mint,
-      symbol:   meta.symbol,
-      decimals: meta.decimals,
-      amount:   tt.tokenAmount * Math.pow(10, meta.decimals), // normalise back to raw
-      from:     tt.fromUserAccount,
-      to:       tt.toUserAccount,
-      price:    meta.price,
+      mint: tt.mint, symbol: meta.symbol, decimals: meta.decimals,
+      amount: tt.tokenAmount * Math.pow(10, meta.decimals),
+      from: tt.fromUserAccount, to: tt.toUserAccount, price: meta.price,
     });
   }
 
   if (legs.length === 0) return null;
 
-  // Determine direction from perspective of trackedWallet
-  const outgoing = legs.filter((l) => l.from === trackedWallet);
-  const incoming = legs.filter((l) => l.to   === trackedWallet);
+  var outgoing = legs.filter(function(l) { return l.from === trackedWallet; });
+  var incoming = legs.filter(function(l) { return l.to === trackedWallet; });
+  var direction = (outgoing.length > 0 && incoming.length === 0) ? "OUT"
+                : (incoming.length > 0 && outgoing.length === 0) ? "IN" : "BOTH";
 
-  const direction = outgoing.length > 0 && incoming.length === 0 ? "OUT"
-                  : incoming.length > 0 && outgoing.length === 0 ? "IN"
-                  : "BOTH";
+  var emoji = direction === "OUT" ? "[OUT]" : direction === "IN" ? "[IN]" : "[TRANSFER]";
+  var action = direction === "OUT" ? "Sent" : direction === "IN" ? "Received" : "Transfer";
+  var relevant = direction === "BOTH" ? legs : direction === "OUT" ? outgoing : incoming;
 
-  const emoji  = direction === "OUT" ? "" : direction === "IN" ? "" : "";
-  const action = direction === "OUT" ? "Sent" : direction === "IN" ? "Received" : "Transfer";
-
-  const relevant = direction === "BOTH" ? legs : direction === "OUT" ? outgoing : incoming;
-
-  let lines = [
+  var lines = [
     emoji + " <b>" + action + "</b>",
     "",
-    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    "<b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
   ];
 
-  for (const leg of relevant) {
-    const amt = formatAmount(leg.amount, leg.decimals);
-    const usd = leg.price ? formatUSD(leg.price * (leg.amount / Math.pow(10, leg.decimals))) : "";
-    const counterparty = direction === "OUT" ? leg.to : leg.from;
-    lines.push(
-      " <b>" + amt + " " + leg.symbol + usd + "</b>    " + shortenAddress(counterparty)
-    );
+  for (var k = 0; k < relevant.length; k++) {
+    var leg = relevant[k];
+    var amt = formatAmount(leg.amount, leg.decimals);
+    var usd = leg.price ? formatUSD(leg.price * (leg.amount / Math.pow(10, leg.decimals))) : "";
+    var counterparty = direction === "OUT" ? leg.to : leg.from;
+    lines.push("<b>" + amt + " " + leg.symbol + usd + "</b>  ->  " + shortenAddress(counterparty));
   }
 
-  lines.push("", " Fee: " + fee + " SOL");
-  if (ts) lines.push(" " + ts);
+  lines.push("", "Fee: " + fee + " SOL");
+  if (ts) lines.push(ts);
 
-  const buttons = [
-    [{ text: " View Transaction", url: explorerLink(sig) }],
-  ];
+  var buttons = [[{ text: "View Transaction", url: explorerLink(sig) }]];
 
-  // Add a Swap button if both sides present (mixed transfer)
   if (direction === "BOTH" && legs.length >= 2) {
-    const inMint  = incoming[0]?.mint;
-    const outMint = outgoing[0]?.mint;
+    var inMint = incoming[0] && incoming[0].mint;
+    var outMint = outgoing[0] && outgoing[0].mint;
     if (inMint && outMint) {
-      buttons.push([{ text: " Swap on Jupiter", url: jupLink(outMint, inMint) }]);
+      buttons.push([{ text: "Swap on Jupiter", url: jupLink(outMint, inMint) }]);
     }
   }
 
-  return { text: lines.join("\n"), buttons };
+  return { text: lines.join("\n"), buttons: buttons };
 }
 
-/**
- * Formats a SWAP alert.
- *
- * Helius enriched "swap" events have .events.swap with tokenInputs / tokenOutputs.
- */
 async function formatSwap(tx, trackedWallet, label) {
-  const sig = tx.signature;
-  const ts  = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
-  const fee = tx.fee ? (tx.fee / LAMPORTS_PER_SOL).toFixed(6) : "?";
-
-  const swapEvent = tx.events?.swap;
-
-  // Fallback: derive from tokenTransfers if no structured swap event
-  let inputMint, inputSymbol, inputDecimals, inputAmount;
-  let outputMint, outputSymbol, outputDecimals, outputAmount;
-  let inputUSD = "", outputUSD = "";
+  var sig = tx.signature;
+  var ts = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
+  var fee = tx.fee ? (tx.fee / LAMPORTS_PER_SOL).toFixed(6) : "?";
+  var swapEvent = tx.events && tx.events.swap;
+  var inputMint, inputSymbol, inputDecimals, inputAmount;
+  var outputMint, outputSymbol, outputDecimals, outputAmount;
+  var inputUSD = "", outputUSD = "";
 
   if (swapEvent) {
-    const inLeg  = swapEvent.tokenInputs?.[0]  || swapEvent.nativeInput;
-    const outLeg = swapEvent.tokenOutputs?.[0] || swapEvent.nativeOutput;
-
+    var inLeg = (swapEvent.tokenInputs && swapEvent.tokenInputs[0]) || swapEvent.nativeInput;
+    var outLeg = (swapEvent.tokenOutputs && swapEvent.tokenOutputs[0]) || swapEvent.nativeOutput;
     if (inLeg) {
-      const meta  = await getTokenMeta(inLeg.mint || SOL_MINT);
-      inputMint    = inLeg.mint || SOL_MINT;
-      inputSymbol  = meta.symbol;
-      inputDecimals = meta.decimals;
-      inputAmount  = inLeg.tokenAmount ?? inLeg.amount;
-      if (meta.price) inputUSD = formatUSD(meta.price * inputAmount);
+      var inMeta = await getTokenMeta(inLeg.mint || SOL_MINT);
+      inputMint = inLeg.mint || SOL_MINT;
+      inputSymbol = inMeta.symbol;
+      inputDecimals = inMeta.decimals;
+      inputAmount = inLeg.tokenAmount != null ? inLeg.tokenAmount : inLeg.amount;
+      if (inMeta.price) inputUSD = formatUSD(inMeta.price * inputAmount);
     }
-
     if (outLeg) {
-      const meta   = await getTokenMeta(outLeg.mint || SOL_MINT);
-      outputMint    = outLeg.mint || SOL_MINT;
-      outputSymbol  = meta.symbol;
-      outputDecimals = meta.decimals;
-      outputAmount  = outLeg.tokenAmount ?? outLeg.amount;
-      if (meta.price) outputUSD = formatUSD(meta.price * outputAmount);
+      var outMeta = await getTokenMeta(outLeg.mint || SOL_MINT);
+      outputMint = outLeg.mint || SOL_MINT;
+      outputSymbol = outMeta.symbol;
+      outputDecimals = outMeta.decimals;
+      outputAmount = outLeg.tokenAmount != null ? outLeg.tokenAmount : outLeg.amount;
+      if (outMeta.price) outputUSD = formatUSD(outMeta.price * outputAmount);
     }
   } else {
-    // Derive from tokenTransfers: wallet sent X, wallet received Y
-    for (const tt of tx.tokenTransfers || []) {
-      const meta = await getTokenMeta(tt.mint);
+    var tTransfers = tx.tokenTransfers || [];
+    for (var i = 0; i < tTransfers.length; i++) {
+      var tt = tTransfers[i];
+      var m = await getTokenMeta(tt.mint);
       if (tt.fromUserAccount === trackedWallet && !inputMint) {
-        inputMint    = tt.mint;
-        inputSymbol  = meta.symbol;
-        inputDecimals = meta.decimals;
-        inputAmount  = tt.tokenAmount;
+        inputMint = tt.mint; inputSymbol = m.symbol; inputDecimals = m.decimals; inputAmount = tt.tokenAmount;
       }
       if (tt.toUserAccount === trackedWallet && !outputMint) {
-        outputMint    = tt.mint;
-        outputSymbol  = meta.symbol;
-        outputDecimals = meta.decimals;
-        outputAmount  = tt.tokenAmount;
+        outputMint = tt.mint; outputSymbol = m.symbol; outputDecimals = m.decimals; outputAmount = tt.tokenAmount;
       }
     }
-    // Check native transfers
-    for (const nt of tx.nativeTransfers || []) {
+    var nTransfers = tx.nativeTransfers || [];
+    for (var j = 0; j < nTransfers.length; j++) {
+      var nt = nTransfers[j];
       if (nt.fromUserAccount === trackedWallet && !inputMint) {
         inputMint = SOL_MINT; inputSymbol = "SOL"; inputDecimals = 9;
         inputAmount = nt.amount / LAMPORTS_PER_SOL;
@@ -307,177 +245,117 @@ async function formatSwap(tx, trackedWallet, label) {
 
   if (!inputMint && !outputMint) return null;
 
-  const inStr  = inputAmount  != null ? formatAmount(inputAmount  * (swapEvent ? Math.pow(10, inputDecimals || 6)  : 1), swapEvent ? inputDecimals || 6 : 0)  : "?";
-  const outStr = outputAmount != null ? formatAmount(outputAmount * (swapEvent ? Math.pow(10, outputDecimals || 6) : 1), swapEvent ? outputDecimals || 6 : 0) : "?";
+  var inStr = inputAmount != null ? formatAmount(inputAmount * (swapEvent ? Math.pow(10, inputDecimals || 6) : 1), swapEvent ? (inputDecimals || 6) : 0) : "?";
+  var outStr = outputAmount != null ? formatAmount(outputAmount * (swapEvent ? Math.pow(10, outputDecimals || 6) : 1), swapEvent ? (outputDecimals || 6) : 0) : "?";
 
-  const lines = [
-    " <b>Swap</b>",
+  var lines = [
+    "[SWAP] <b>Swap</b>",
     "",
-    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    "<b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
     "",
-    " <b>Sold:</b>   " + inStr  + " " + (inputSymbol  || "?") + inputUSD,
-    " <b>Bought:</b> " + outStr + " " + (outputSymbol || "?") + outputUSD,
+    "<b>Sold:</b>   " + inStr + " " + (inputSymbol || "?") + inputUSD,
+    "<b>Bought:</b> " + outStr + " " + (outputSymbol || "?") + outputUSD,
     "",
-    " Fee: " + fee + " SOL",
+    "Fee: " + fee + " SOL",
   ];
-  if (ts) lines.push(" " + ts);
+  if (ts) lines.push(ts);
 
-  const buttons = [
-    [{ text: " View on Solscan", url: explorerLink(sig) }],
-  ];
-
+  var buttons = [[{ text: "View on Solscan", url: explorerLink(sig) }]];
   if (outputMint && outputMint !== SOL_MINT) {
-    buttons.push([{ text: " Chart on DexScreener", url: dexLink(outputMint) }]);
+    buttons.push([{ text: "Chart on DexScreener", url: dexLink(outputMint) }]);
   }
   if (inputMint && outputMint) {
-    buttons.push([{ text: " Trade on Jupiter", url: jupLink(inputMint, outputMint) }]);
+    buttons.push([{ text: "Trade on Jupiter", url: jupLink(inputMint, outputMint) }]);
   }
 
-  return { text: lines.join("\n"), buttons };
+  return { text: lines.join("\n"), buttons: buttons };
 }
 
-/**
- * Formats a BUY alert.
- * A "buy" is semantically a swap where wallet received a non-SOL/stablecoin token.
- */
 async function formatBuy(tx, trackedWallet, label) {
-  const result = await formatSwap(tx, trackedWallet, label);
+  var result = await formatSwap(tx, trackedWallet, label);
   if (!result) return null;
-  // Replace the first line emoji/label
-  result.text = result.text.replace(" <b>Swap</b>", " <b>Buy</b>");
+  result.text = result.text.replace("[SWAP] <b>Swap</b>", "[BUY] <b>Buy</b>");
   return result;
 }
 
-/**
- * Formats a SELL alert.
- * A "sell" is a swap where wallet sent a non-SOL/stablecoin token.
- */
 async function formatSell(tx, trackedWallet, label) {
-  const result = await formatSwap(tx, trackedWallet, label);
+  var result = await formatSwap(tx, trackedWallet, label);
   if (!result) return null;
-  result.text = result.text.replace(" <b>Swap</b>", " <b>Sell</b>");
+  result.text = result.text.replace("[SWAP] <b>Swap</b>", "[SELL] <b>Sell</b>");
   return result;
 }
 
-/**
- * Formats an NFT SALE alert.
- */
 async function formatNFTSale(tx, trackedWallet, label) {
-  const sig   = tx.signature;
-  const ts    = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
-  const sale  = tx.events?.nft;
-
+  var sig = tx.signature;
+  var ts = tx.timestamp ? new Date(tx.timestamp * 1000).toLocaleString() : "";
+  var sale = tx.events && tx.events.nft;
   if (!sale) return null;
-
-  const isSeller = sale.seller === trackedWallet;
-  const isBuyer  = sale.buyer  === trackedWallet;
+  var isSeller = sale.seller === trackedWallet;
+  var isBuyer = sale.buyer === trackedWallet;
   if (!isSeller && !isBuyer) return null;
-
-  const role   = isSeller ? "Sold" : "Bought";
-  const emoji  = isSeller ? "" : "";
-  const price  = sale.amount ? (sale.amount / LAMPORTS_PER_SOL).toFixed(4) : "?";
-  const nftName = sale.nfts?.[0]?.name || "NFT";
-
-  const lines = [
-    emoji + " <b>NFT " + role + "</b>",
+  var role = isSeller ? "Sold" : "Bought";
+  var price = sale.amount ? (sale.amount / LAMPORTS_PER_SOL).toFixed(4) : "?";
+  var nftName = (sale.nfts && sale.nfts[0] && sale.nfts[0].name) || "NFT";
+  var lines = [
+    "[NFT] <b>NFT " + role + "</b>",
     "",
-    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
-    " <b>Item:</b>  " + nftName,
-    " <b>Price:</b> " + price + " SOL",
+    "<b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    "<b>Item:</b>  " + nftName,
+    "<b>Price:</b> " + price + " SOL",
     "",
-    " " + ts,
+    ts,
   ];
-
-  const buttons = [
-    [{ text: " View Transaction", url: explorerLink(sig) }],
-  ];
-
-  const nftMint = sale.nfts?.[0]?.mint;
+  var buttons = [[{ text: "View Transaction", url: explorerLink(sig) }]];
+  var nftMint = sale.nfts && sale.nfts[0] && sale.nfts[0].mint;
   if (nftMint) {
-    buttons.push([{ text: " View on Magic Eden", url: "https://magiceden.io/item-details/" + nftMint }]);
+    buttons.push([{ text: "View on Magic Eden", url: "https://magiceden.io/item-details/" + nftMint }]);
   }
-
-  return { text: lines.join("\n"), buttons };
+  return { text: lines.join("\n"), buttons: buttons };
 }
 
-//  Transaction Classifier 
-
-/**
- * Classifies a Helius enriched transaction into one of:
- *   BUY | SELL | SWAP | TRANSFER | NFT_SALE | UNKNOWN
- *
- * Strategy:
- * 1. Use tx.type if Helius already labelled it.
- * 2. Inspect token flows relative to trackedWallet.
- */
 function classifyTransaction(tx, trackedWallet) {
-  const type = (tx.type || "").toUpperCase();
-
-  // Helius already classified it
+  var type = (tx.type || "").toUpperCase();
   if (type === "NFT_SALE" || type === "NFT_BID" || type === "NFT_LISTING") return "NFT_SALE";
-  if (type === "SWAP")     return "SWAP";
+  if (type === "SWAP") return "SWAP";
   if (type === "TRANSFER") return "TRANSFER";
+  if (tx.events && tx.events.swap) return "SWAP";
+  if (tx.events && tx.events.nft) return "NFT_SALE";
 
-  // Check for swap events
-  if (tx.events?.swap) return "SWAP";
+  var inTokens = (tx.tokenTransfers || []).filter(function(t) { return t.toUserAccount === trackedWallet; });
+  var outTokens = (tx.tokenTransfers || []).filter(function(t) { return t.fromUserAccount === trackedWallet; });
+  var inNative = (tx.nativeTransfers || []).filter(function(t) { return t.toUserAccount === trackedWallet; });
+  var outNative = (tx.nativeTransfers || []).filter(function(t) { return t.fromUserAccount === trackedWallet; });
 
-  // Check for NFT events
-  if (tx.events?.nft)  return "NFT_SALE";
-
-  // Analyse token flows
-  const inTokens  = (tx.tokenTransfers || []).filter((t) => t.toUserAccount   === trackedWallet);
-  const outTokens = (tx.tokenTransfers || []).filter((t) => t.fromUserAccount === trackedWallet);
-  const inNative  = (tx.nativeTransfers || []).filter((t) => t.toUserAccount   === trackedWallet);
-  const outNative = (tx.nativeTransfers || []).filter((t) => t.fromUserAccount === trackedWallet);
-
-  const hasIn  = inTokens.length  > 0 || inNative.length  > 0;
-  const hasOut = outTokens.length > 0 || outNative.length > 0;
+  var hasIn = inTokens.length > 0 || inNative.length > 0;
+  var hasOut = outTokens.length > 0 || outNative.length > 0;
 
   if (hasIn && hasOut) {
-    // Both sides involved  likely a swap
-    // Classify as BUY if received non-SOL, SELL if sent non-SOL
-    if (inTokens.length > 0 && outNative.length > 0)  return "BUY";
-    if (outTokens.length > 0 && inNative.length > 0)  return "SELL";
+    if (inTokens.length > 0 && outNative.length > 0) return "BUY";
+    if (outTokens.length > 0 && inNative.length > 0) return "SELL";
     return "SWAP";
   }
-
   if (hasIn || hasOut) return "TRANSFER";
-
   return "UNKNOWN";
 }
 
-//  Core Alert Dispatcher 
-
-/**
- * Processes one enriched Helius transaction for one tracked wallet.
- * Selects the correct formatter and sends the Telegram alert.
- */
 async function processTransactionForWallet(tx, trackedWallet, chatId, label) {
-  const txType = classifyTransaction(tx, trackedWallet);
-  console.log("Processing tx", { sig: tx.signature?.slice(0, 12), txType, trackedWallet: shortenAddress(trackedWallet) });
+  var txType = classifyTransaction(tx, trackedWallet);
+  console.log("Processing tx", { sig: tx.signature && tx.signature.slice(0, 12), txType: txType });
 
-  let result = null;
-
+  var result = null;
   try {
-    switch (txType) {
-      case "BUY":      result = await formatBuy(tx, trackedWallet, label);       break;
-      case "SELL":     result = await formatSell(tx, trackedWallet, label);      break;
-      case "SWAP":     result = await formatSwap(tx, trackedWallet, label);      break;
-      case "TRANSFER": result = await formatTransfer(tx, trackedWallet, label);  break;
-      case "NFT_SALE": result = await formatNFTSale(tx, trackedWallet, label);   break;
-      default:
-        console.log("Skipping UNKNOWN tx type", tx.signature);
-        return;
-    }
+    if (txType === "BUY") result = await formatBuy(tx, trackedWallet, label);
+    else if (txType === "SELL") result = await formatSell(tx, trackedWallet, label);
+    else if (txType === "SWAP") result = await formatSwap(tx, trackedWallet, label);
+    else if (txType === "TRANSFER") result = await formatTransfer(tx, trackedWallet, label);
+    else if (txType === "NFT_SALE") result = await formatNFTSale(tx, trackedWallet, label);
+    else { console.log("Skipping UNKNOWN tx", tx.signature); return; }
   } catch (err) {
-    console.error("Formatter error for", txType, err);
+    console.error("Formatter error", txType, err);
     return;
   }
 
-  if (!result) {
-    console.log("Formatter returned null for", tx.signature, txType);
-    return;
-  }
+  if (!result) { console.log("Formatter returned null", tx.signature, txType); return; }
 
   if (result.buttons && result.buttons.length > 0) {
     await sendTelegramMessageWithButtons(chatId, result.text, result.buttons);
@@ -486,50 +364,47 @@ async function processTransactionForWallet(tx, trackedWallet, chatId, label) {
   }
 }
 
-//  Webhook Handler (Vercel / Next.js API Route) 
-
 async function handler(req, res) {
-  // Liveness probe
   if (req.method !== "POST") {
     return res.status(200).json({ ok: true, message: "Helius webhook alive" });
   }
 
-  // Optional shared secret validation
-  const secret = process.env.WEBHOOK_SECRET;
+  var secret = process.env.WEBHOOK_SECRET;
   if (secret) {
-    const provided = req.query?.secret || req.headers?.["x-webhook-secret"];
+    var provided = (req.query && req.query.secret) || (req.headers && req.headers["x-webhook-secret"]);
     if (provided !== secret) {
       console.warn("Helius webhook: invalid secret");
       return res.status(401).json({ ok: false, error: "Unauthorized" });
     }
   }
 
-  // Helius sends an array of enriched transactions
-  const transactions = Array.isArray(req.body) ? req.body : [req.body];
+  var transactions = Array.isArray(req.body) ? req.body : [req.body];
 
   if (!supabase) {
     console.error("Helius webhook: Supabase not initialised");
     return res.status(200).json({ ok: true, warning: "Supabase not configured" });
   }
 
-  for (const tx of transactions) {
+  for (var i = 0; i < transactions.length; i++) {
+    var tx = transactions[i];
     if (!tx || !tx.signature) continue;
 
-    // Collect every unique account touched in this transaction
-    const accountsInvolved = new Set();
-
-    for (const nt of tx.nativeTransfers || []) {
-      if (nt.fromUserAccount) accountsInvolved.add(nt.fromUserAccount);
-      if (nt.toUserAccount)   accountsInvolved.add(nt.toUserAccount);
+    var accountsInvolved = new Set();
+    var nativeTransfers = tx.nativeTransfers || [];
+    for (var n = 0; n < nativeTransfers.length; n++) {
+      if (nativeTransfers[n].fromUserAccount) accountsInvolved.add(nativeTransfers[n].fromUserAccount);
+      if (nativeTransfers[n].toUserAccount) accountsInvolved.add(nativeTransfers[n].toUserAccount);
     }
-    for (const tt of tx.tokenTransfers || []) {
-      if (tt.fromUserAccount) accountsInvolved.add(tt.fromUserAccount);
-      if (tt.toUserAccount)   accountsInvolved.add(tt.toUserAccount);
+    var tokenTransfers = tx.tokenTransfers || [];
+    for (var t = 0; t < tokenTransfers.length; t++) {
+      if (tokenTransfers[t].fromUserAccount) accountsInvolved.add(tokenTransfers[t].fromUserAccount);
+      if (tokenTransfers[t].toUserAccount) accountsInvolved.add(tokenTransfers[t].toUserAccount);
     }
 
-    // For each account, check if any of our users are tracking it
-    for (const walletAddress of accountsInvolved) {
-      let subscribers;
+    var wallets = Array.from(accountsInvolved);
+    for (var w = 0; w < wallets.length; w++) {
+      var walletAddress = wallets[w];
+      var subscribers;
       try {
         subscribers = await getActiveSubscribersForWallet(walletAddress);
       } catch (dbErr) {
@@ -537,11 +412,11 @@ async function handler(req, res) {
         continue;
       }
 
-      for (const sub of subscribers) {
-        const chatId = sub.telegram_chat_id;
-        const label  = sub.label || null;
+      for (var s = 0; s < subscribers.length; s++) {
+        var sub = subscribers[s];
+        var chatId = sub.telegram_chat_id;
+        var label = sub.label || null;
         if (!chatId) continue;
-
         try {
           await processTransactionForWallet(tx, walletAddress, chatId, label);
         } catch (alertErr) {
