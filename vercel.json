@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/expiry-warning",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/auto-verify",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
