@@ -1,12 +1,12 @@
 const { createClient } = require("@supabase/supabase-js");
 
-// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Constants 
 
 const HELIUS_API_BASE = "https://api.helius.xyz/v0";
 const SOL_MINT        = "So11111111111111111111111111111111111111112";
 const LAMPORTS_PER_SOL = 1_000_000_000;
 
-// â”€â”€â”€ Supabase â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Supabase 
 
 const supabase =
   process.env.SUPABASEURL && process.env.SUPABASESERVICEROLEKEY
@@ -15,7 +15,7 @@ const supabase =
       })
     : null;
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Helpers 
 
 function shortenAddress(addr, len = 6) {
   if (!addr || addr.length <= len * 2 + 3) return addr;
@@ -50,7 +50,7 @@ function jupLink(inputMint, outputMint) {
   );
 }
 
-// â”€â”€â”€ Telegram Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Telegram Helpers 
 
 async function sendTelegramMessage(chatId, text) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -83,7 +83,7 @@ async function sendTelegramMessageWithButtons(chatId, text, inlineKeyboard) {
   }).catch((e) => console.error("sendTelegramMessageWithButtons error", e));
 }
 
-// â”€â”€â”€ Supabase Lookups â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Supabase Lookups 
 
 /**
  * Returns all active tracked-wallet rows for a given wallet address.
@@ -103,7 +103,7 @@ async function getActiveSubscribersForWallet(walletAddress) {
   return data || [];
 }
 
-// â”€â”€â”€ Token Metadata (Helius DAS) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Token Metadata (Helius DAS) 
 
 const tokenMetaCache = new Map();
 
@@ -144,7 +144,7 @@ async function getTokenMeta(mint) {
   }
 }
 
-// â”€â”€â”€ Alert Formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Alert Formatters 
 
 /**
  * Formats a TRANSFER alert.
@@ -198,7 +198,7 @@ async function formatTransfer(tx, trackedWallet, label) {
                   : incoming.length > 0 && outgoing.length === 0 ? "IN"
                   : "BOTH";
 
-  const emoji  = direction === "OUT" ? "ðŸ“¤" : direction === "IN" ? "ðŸ“¥" : "ðŸ”„";
+  const emoji  = direction === "OUT" ? "" : direction === "IN" ? "" : "";
   const action = direction === "OUT" ? "Sent" : direction === "IN" ? "Received" : "Transfer";
 
   const relevant = direction === "BOTH" ? legs : direction === "OUT" ? outgoing : incoming;
@@ -206,7 +206,7 @@ async function formatTransfer(tx, trackedWallet, label) {
   let lines = [
     emoji + " <b>" + action + "</b>",
     "",
-    "ðŸ‘› <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
   ];
 
   for (const leg of relevant) {
@@ -214,15 +214,15 @@ async function formatTransfer(tx, trackedWallet, label) {
     const usd = leg.price ? formatUSD(leg.price * (leg.amount / Math.pow(10, leg.decimals))) : "";
     const counterparty = direction === "OUT" ? leg.to : leg.from;
     lines.push(
-      "ðŸ’¸ <b>" + amt + " " + leg.symbol + usd + "</b>  â†’  " + shortenAddress(counterparty)
+      " <b>" + amt + " " + leg.symbol + usd + "</b>    " + shortenAddress(counterparty)
     );
   }
 
-  lines.push("", "â›½ Fee: " + fee + " SOL");
-  if (ts) lines.push("ðŸ•’ " + ts);
+  lines.push("", " Fee: " + fee + " SOL");
+  if (ts) lines.push(" " + ts);
 
   const buttons = [
-    [{ text: "ðŸ” View Transaction", url: explorerLink(sig) }],
+    [{ text: " View Transaction", url: explorerLink(sig) }],
   ];
 
   // Add a Swap button if both sides present (mixed transfer)
@@ -230,7 +230,7 @@ async function formatTransfer(tx, trackedWallet, label) {
     const inMint  = incoming[0]?.mint;
     const outMint = outgoing[0]?.mint;
     if (inMint && outMint) {
-      buttons.push([{ text: "âš¡ Swap on Jupiter", url: jupLink(outMint, inMint) }]);
+      buttons.push([{ text: " Swap on Jupiter", url: jupLink(outMint, inMint) }]);
     }
   }
 
@@ -311,26 +311,26 @@ async function formatSwap(tx, trackedWallet, label) {
   const outStr = outputAmount != null ? formatAmount(outputAmount * (swapEvent ? Math.pow(10, outputDecimals || 6) : 1), swapEvent ? outputDecimals || 6 : 0) : "?";
 
   const lines = [
-    "ðŸ”„ <b>Swap</b>",
+    " <b>Swap</b>",
     "",
-    "ðŸ‘› <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
     "",
-    "ðŸ“‰ <b>Sold:</b>   " + inStr  + " " + (inputSymbol  || "?") + inputUSD,
-    "ðŸ“ˆ <b>Bought:</b> " + outStr + " " + (outputSymbol || "?") + outputUSD,
+    " <b>Sold:</b>   " + inStr  + " " + (inputSymbol  || "?") + inputUSD,
+    " <b>Bought:</b> " + outStr + " " + (outputSymbol || "?") + outputUSD,
     "",
-    "â›½ Fee: " + fee + " SOL",
+    " Fee: " + fee + " SOL",
   ];
-  if (ts) lines.push("ðŸ•’ " + ts);
+  if (ts) lines.push(" " + ts);
 
   const buttons = [
-    [{ text: "ðŸ” View on Solscan", url: explorerLink(sig) }],
+    [{ text: " View on Solscan", url: explorerLink(sig) }],
   ];
 
   if (outputMint && outputMint !== SOL_MINT) {
-    buttons.push([{ text: "ðŸ“Š Chart on DexScreener", url: dexLink(outputMint) }]);
+    buttons.push([{ text: " Chart on DexScreener", url: dexLink(outputMint) }]);
   }
   if (inputMint && outputMint) {
-    buttons.push([{ text: "âš¡ Trade on Jupiter", url: jupLink(inputMint, outputMint) }]);
+    buttons.push([{ text: " Trade on Jupiter", url: jupLink(inputMint, outputMint) }]);
   }
 
   return { text: lines.join("\n"), buttons };
@@ -344,7 +344,7 @@ async function formatBuy(tx, trackedWallet, label) {
   const result = await formatSwap(tx, trackedWallet, label);
   if (!result) return null;
   // Replace the first line emoji/label
-  result.text = result.text.replace("ðŸ”„ <b>Swap</b>", "ðŸŸ¢ <b>Buy</b>");
+  result.text = result.text.replace(" <b>Swap</b>", " <b>Buy</b>");
   return result;
 }
 
@@ -355,7 +355,7 @@ async function formatBuy(tx, trackedWallet, label) {
 async function formatSell(tx, trackedWallet, label) {
   const result = await formatSwap(tx, trackedWallet, label);
   if (!result) return null;
-  result.text = result.text.replace("ðŸ”„ <b>Swap</b>", "ðŸ”´ <b>Sell</b>");
+  result.text = result.text.replace(" <b>Swap</b>", " <b>Sell</b>");
   return result;
 }
 
@@ -374,33 +374,33 @@ async function formatNFTSale(tx, trackedWallet, label) {
   if (!isSeller && !isBuyer) return null;
 
   const role   = isSeller ? "Sold" : "Bought";
-  const emoji  = isSeller ? "ðŸ·ï¸" : "ðŸ›’";
+  const emoji  = isSeller ? "" : "";
   const price  = sale.amount ? (sale.amount / LAMPORTS_PER_SOL).toFixed(4) : "?";
   const nftName = sale.nfts?.[0]?.name || "NFT";
 
   const lines = [
     emoji + " <b>NFT " + role + "</b>",
     "",
-    "ðŸ‘› <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
-    "ðŸ–¼ï¸ <b>Item:</b>  " + nftName,
-    "ðŸ’° <b>Price:</b> " + price + " SOL",
+    " <b>Wallet:</b> " + (label ? '"' + label + '"' : shortenAddress(trackedWallet)),
+    " <b>Item:</b>  " + nftName,
+    " <b>Price:</b> " + price + " SOL",
     "",
-    "ðŸ•’ " + ts,
+    " " + ts,
   ];
 
   const buttons = [
-    [{ text: "ðŸ” View Transaction", url: explorerLink(sig) }],
+    [{ text: " View Transaction", url: explorerLink(sig) }],
   ];
 
   const nftMint = sale.nfts?.[0]?.mint;
   if (nftMint) {
-    buttons.push([{ text: "ðŸ–¼ï¸ View on Magic Eden", url: "https://magiceden.io/item-details/" + nftMint }]);
+    buttons.push([{ text: " View on Magic Eden", url: "https://magiceden.io/item-details/" + nftMint }]);
   }
 
   return { text: lines.join("\n"), buttons };
 }
 
-// â”€â”€â”€ Transaction Classifier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Transaction Classifier 
 
 /**
  * Classifies a Helius enriched transaction into one of:
@@ -434,7 +434,7 @@ function classifyTransaction(tx, trackedWallet) {
   const hasOut = outTokens.length > 0 || outNative.length > 0;
 
   if (hasIn && hasOut) {
-    // Both sides involved â†’ likely a swap
+    // Both sides involved  likely a swap
     // Classify as BUY if received non-SOL, SELL if sent non-SOL
     if (inTokens.length > 0 && outNative.length > 0)  return "BUY";
     if (outTokens.length > 0 && inNative.length > 0)  return "SELL";
@@ -446,7 +446,7 @@ function classifyTransaction(tx, trackedWallet) {
   return "UNKNOWN";
 }
 
-// â”€â”€â”€ Core Alert Dispatcher â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Core Alert Dispatcher 
 
 /**
  * Processes one enriched Helius transaction for one tracked wallet.
@@ -486,7 +486,7 @@ async function processTransactionForWallet(tx, trackedWallet, chatId, label) {
   }
 }
 
-// â”€â”€â”€ Webhook Handler (Vercel / Next.js API Route) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  Webhook Handler (Vercel / Next.js API Route) 
 
 async function handler(req, res) {
   // Liveness probe
