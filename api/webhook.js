@@ -111,6 +111,24 @@ async function clearUserState(telegramUserId) {
   if (error) console.error("clearUserState error", error);
 }
 
+async function setSelectedPlan(telegramUserId, planKey) {
+  if (!supabase) return;
+  const { error } = await supabase.from("users")
+    .update({ selected_plan: planKey })
+    .eq("telegram_user_id", String(telegramUserId));
+  if (error) console.error("setSelectedPlan error", error);
+}
+
+async function getSelectedPlan(telegramUserId) {
+  if (!supabase) return null;
+  const { data, error } = await supabase.from("users")
+    .select("selected_plan")
+    .eq("telegram_user_id", String(telegramUserId))
+    .maybeSingle();
+  if (error) { console.error("getSelectedPlan error", error); return null; }
+  return data && data.selected_plan ? data.selected_plan : null;
+}
+
 async function ensureUserAndFreePlan(telegramUser) {
   if (!supabase) throw new Error("Supabase client not initialized");
   const telegramUserId = String(telegramUser.id);
@@ -275,13 +293,16 @@ async function sendPlanMenu(chatId) {
   await sendTelegramMessageWithButtons(chatId, text, inlineKeyboard);
 }
 
-async function handlePlanSelection(chatId, callbackQueryId, planKey) {
+async function handlePlanSelection(chatId, callbackQueryId, planKey, telegramUserId) {
   await answerCallbackQuery(callbackQueryId, "");
   if (planKey === "noop") return;
   const plan = PLANS[planKey];
   if (!plan) {
     await sendTelegramMessage(chatId, "Invalid plan. Please try /plan again.");
     return;
+  }
+  if (telegramUserId) {
+    await setSelectedPlan(telegramUserId, planKey);
   }
   const daysText = plan.billing === "yearly" ? "365 days" : "30 days";
   await sendTelegramMessage(
@@ -290,8 +311,8 @@ async function handlePlanSelection(chatId, callbackQueryId, planKey) {
     "\nPrice: " + plan.sol.toFixed(2) + " SOL" +
     "\nDuration: " + daysText +
     "\n\nSend exactly " + plan.sol.toFixed(2) + " SOL to:\n\n" + PAYMENT_WALLET +
-    "\n\nAfter sending use:\n/verify TRANSACTION_HASH " + planKey +
-    "\n\nExample:\n/verify abc123xyz " + planKey
+    "\n\nAfter sending, simply use:\n/verify TRANSACTION_HASH" +
+    "\n\nExample:\n/verify abc123xyz"
   );
 }
 
@@ -309,11 +330,14 @@ module.exports = async function handler(req, res) {
     const cq = body.callback_query;
     const callbackQueryId = cq.id;
     const chatId = cq.message && cq.message.chat && cq.message.chat.id;
+    const cqUser = cq.from;
+    const cqUserId = cqUser ? String(cqUser.id) : null;
     const data = cq.data || "";
     try {
+      if (cqUser) await ensureUserAndFreePlan(cqUser);
       if (data.startsWith("plan:")) {
         const planKey = data.replace("plan:", "");
-        await handlePlanSelection(chatId, callbackQueryId, planKey);
+        await handlePlanSelection(chatId, callbackQueryId, planKey, cqUserId);
       } else {
         await answerCallbackQuery(callbackQueryId, "");
       }
@@ -357,17 +381,18 @@ module.exports = async function handler(req, res) {
         "CipherMind Commands:\n\n" +
         "/start — Set up your account\n\n" +
         "/add <wallet_address>\nStep 1: Enter wallet address\nStep 2: Enter wallet name\nTracking begins immediately\n\n" +
-        "/untrack — Pause or resume a wallet\not shows numbered list\nStep 2: Enter number to toggle pause/resume\n\n" +
+        "/untrack — Pause or resume a wallet\nStep 1: Bot shows numbered list\nStep 2: Enter number to toggle pause/resume\n\n" +
         "/remove — Permanently remove a wallet\nStep 1: Bot shows numbered list\nStep 2: Enter number to remove. Bot confirms and shows updated list\n\n" +
         "/wallets — View all your tracked wallets with address and name\n\n" +
         "/plan — View subscription plans and subscribe\n\n" +
         "/myplan — View your current active plan\n\n" +
-        "/verify TRANSACTION_HASH PLAN — Verify your SOL payment"
+        "/verify TRANSACTION_HASH — Verify your SOL payment for the plan you selected"
       );
       return res.status(200).json({ ok: true });
     }
 
     if (command === "/plan") {
+      if (fromUser) await ensureUserAndFreePlan(fromUser);
       await sendPlanMenu(chatId);
       return res.status(200).json({ ok: true });
     }
@@ -389,18 +414,25 @@ module.exports = async function handler(req, res) {
     if (command === "/verify") {
       if (!fromUser) { await sendTelegramMessage(chatId, "Could not identify user."); return res.status(200).json({ ok: true }); }
       const args = getArgs(text);
-      if (args.length < 2) {
-        await sendTelegramMessage(chatId, "Usage: /verify TRANSACTION_HASH PLAN\n\nExample:\n/verify abc123xyz monthly_50\n\nUse /plan to select a plan first.");
+      if (args.length < 1) {
+        await sendTelegramMessage(chatId, "Usage: /verify TRANSACTION_HASH\n\nExample:\n/verify abc123xyz\n\nMake sure you tapped a plan in /plan first.");
         return res.status(200).json({ ok: true });
       }
       const txHash = args[0];
-      const planKey = args[1];
-      const plan = PLANS[planKey];
-      if (!plan) {
-        await sendTelegramMessage(chatId, "Invalid plan key. Use /plan to select a plan first.");
+      let planKey = args[1];
+      if (!planKey) {
+        planKey = await getSelectedPlan(String(fromUser.id));
+      }
+      if (!planKey) {
+        await sendTelegramMessage(chatId, "No plan selected yet. Use /plan and tap a plan first, then run /verify TRANSACTION_HASH.");
         return res.status(200).json({ ok: true });
       }
-      await sendTelegramMessage(chatId, "Checking your transaction on the Solana blockchain...");
+      const plan = PLANS[planKey];
+      if (!plan) {
+        await sendTelegramMessage(chatId, "Selected plan is invalid. Use /plan to pick a plan again.");
+        return res.status(200).json({ ok: true });
+      }
+      await sendTelegramMessage(chatId, "Checking your transaction on the Solana blockchain for plan: " + plan.label + "...");
       try {
         const { data: existingPayment } = await supabase
           .from("pending_payments").select("id, status").eq("id", txHash).maybeSingle();
@@ -455,6 +487,7 @@ module.exports = async function handler(req, res) {
           id: txHash, telegram_user_id: String(fromUser.id), plan_requested: planKey,
           amount: receivedSOL, bill_cycle: plan.billing, status: "confirmed",
         });
+        await setSelectedPlan(String(fromUser.id), null);
         await sendTelegramMessage(
           chatId,
           "✅ Payment confirmed!\n\nPlan: " + plan.label +
